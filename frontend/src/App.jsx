@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { alertService } from './services/api';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -210,7 +210,7 @@ const MainLayout = () => {
   );
 };
 
-const App = () => {
+const AppContent = () => {
   const { isAuthenticated, user, loading } = useAuth();
   const [authView, setAuthView] = useState('login');
 
@@ -262,5 +262,13 @@ const App = () => {
     </div>
   );
 };
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
 
 export default App;
