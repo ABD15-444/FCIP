@@ -1,0 +1,11 @@
+first_name,last_name,customer_email,from_account,to_account,amount,currency,transaction_type,transaction_date,channel,description
+Elena,Rostova,elena.rostova@offshore.ch,ACC-10001,ACC-10002,150000.00,USD,wire_transfer,2026-10-25T10:00:00Z,swift,Offshore Capital Influx
+Elena,Rostova,elena.rostova@offshore.ch,ACC-10001,ACC-10003,45000.00,USD,wire_transfer,2026-10-25T10:02:00Z,swift,Intermediary Dispersal
+Elena,Rostova,elena.rostova@offshore.ch,ACC-10001,ACC-10004,82000.00,USD,wire_transfer,2026-10-25T10:04:00Z,swift,Shell Company Holdings
+Elena,Rostova,elena.rostova@offshore.ch,ACC-10001,ACC-10005,65000.00,USD,wire_transfer,2026-10-25T10:06:00Z,swift,Swift Rapid Velocity
+Marcus,Vance,marcus.vance@hedgefund.io,ACC-10002,ACC-10006,120000.00,USD,clearing,2026-10-25T11:00:00Z,online,Equity Liquidation
+Sofia,Chen,sofia.chen@pacific.org,ACC-10006,ACC-10007,95000.00,USD,transfer,2026-10-25T12:00:00Z,mobile,Trust Escrow
+Alexander,Kroll,alex.kroll@nordic.se,ACC-10007,ACC-10001,90000.00,USD,transfer,2026-10-25T13:00:00Z,wire,Return Cycle Loop Complete
+David,Miller,david.miller@techcorp.com,ACC-20001,ACC-20002,1250.00,USD,payment,2026-10-26T08:30:00Z,pos,Software License
+Sarah,Connor,sarah.c@security.net,ACC-30001,ACC-30002,480.00,USD,transfer,2026-10-26T09:15:00Z,mobile,Personal Reimbursement
+Carlos,Santana,carlos.s@valleymusic.com,ACC-40001,ACC-40002,32000.00,USD,wire_transfer,2026-10-26T14:20:00Z,wire,Equipment Import
