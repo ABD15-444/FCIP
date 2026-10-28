@@ -190,6 +190,24 @@ router.get('/:id', authenticateToken, async (req, res) => {
     caseData.notes = notesRes.rows;
     caseData.history = historyRes.rows;
 
+    // Fetch linked alert details if alert_id exists
+    if (caseData.alert_id) {
+      const alertQuery = await db.query(
+        `SELECT a.*, dr.rule_name, dr.rule_code, dr.severity as rule_severity,
+                t.amount, t.currency, t.transaction_date,
+                rs.score as severity_score
+         FROM alerts a
+         LEFT JOIN detection_rules dr ON a.rule_id = dr.id
+         LEFT JOIN transactions t ON a.transaction_id = t.id
+         LEFT JOIN risk_scores rs ON rs.entity_type = 'transaction' AND rs.entity_id = t.id
+         WHERE a.id = $1`,
+        [caseData.alert_id]
+      );
+      caseData.alerts = alertQuery.rows;
+    } else {
+      caseData.alerts = [];
+    }
+
     res.status(200).json({ success: true, case: caseData });
   } catch (error) {
     console.error('Fetch case detail error:', error);

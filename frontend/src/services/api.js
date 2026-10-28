@@ -171,6 +171,10 @@ export const caseService = {
     const res = await api.get(`/cases/${id}`);
     return res.data;
   },
+  getCaseById: async (id) => {
+    const res = await api.get(`/cases/${id}`);
+    return res.data;
+  },
   updateCase: async (id, updateData) => {
     const res = await api.put(`/cases/${id}`, updateData);
     return res.data;

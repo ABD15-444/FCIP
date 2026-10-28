@@ -33,7 +33,8 @@ const CaseReviews = ({ initialCaseId, onBack }) => {
     try {
       setLoadingList(true);
       const res = await caseService.getCases();
-      const list = res.data || [];
+      // Handle either res.cases or res.data
+      const list = res.cases || res.data || [];
       // Filter for compliance workflow statuses or show all
       const reviewable = list.filter((c) =>
         ['submitted_for_review', 'under_compliance_review', 'returned_for_correction', 'compliance_accepted', 'escalated'].includes(c.status)
@@ -57,8 +58,10 @@ const CaseReviews = ({ initialCaseId, onBack }) => {
     if (!id) return;
     try {
       setLoadingDetail(true);
-      const res = await caseService.getCaseById(id);
-      setCaseDetails(res.data);
+      const res = await caseService.getCaseDetail(id);
+      // Backend returns { success: true, case: caseData }
+      const detail = res.case || res.data || res;
+      setCaseDetails(detail);
     } catch (err) {
       console.error(err);
       setFeedbackMsg({ text: 'Failed to load case dossier.', type: 'error' });
