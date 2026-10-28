@@ -171,6 +171,17 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
           }
         }
 
+        // If all rows failed validation, rollback and return 400 Bad Request
+        if (transactionsCreated === 0 && duplicateRowsIgnored === 0 && rejectedRows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            message: `CSV validation failed for all ${results.length} row(s). No valid transaction records found.`,
+            rejectedCount: rejectedRows.length,
+            errors: rejectedRows,
+          });
+        }
+
         await client.query('COMMIT');
         await rebuildEntityRelationships();
 

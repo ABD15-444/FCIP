@@ -5,8 +5,8 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const { runDetectionEngine, initDetectionRules } = require('../services/detectionEngine');
 const { logAudit } = require('../middleware/audit');
 
-// POST /api/detection/run - trigger detection on all transactions
-router.post('/run', authenticateToken, async (req, res) => {
+// POST /api/detection/run - trigger detection on all transactions (Investigator & Admin only)
+router.post('/run', authenticateToken, authorizeRoles('investigator', 'admin'), async (req, res) => {
   try {
     const summary = await runDetectionEngine();
 
