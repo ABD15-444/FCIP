@@ -45,25 +45,46 @@ const initDetectionRules = async () => {
   }
 };
 
-const runDetectionEngine = async () => {
+/**
+ * Checks whether an amount is considered a round number:
+ * An amount >= threshold that ends in two or more zeros (or exact multiples of 1,000 / 5,000 / 10,000 with no cents).
+ */
+const isRoundNumber = (amount, threshold) => {
+  const num = parseFloat(amount);
+  if (isNaN(num) || num < threshold) return false;
+  // Must be an integer or have .00
+  if (Math.floor(num) !== num) return false;
+  // Ends in at least three zeros (multiple of 1,000) or two zeros (multiple of 100) above $5,000
+  return num % 1000 === 0 || (num >= 5000 && num % 500 === 0);
+};
+
+const runDetectionEngine = async (singleTxId = null) => {
   await initDetectionRules();
 
   // Fetch active rules
   const rulesRes = await db.query("SELECT * FROM detection_rules WHERE status = 'active'");
   const rules = rulesRes.rows;
 
-  // Fetch all transactions
-  const txRes = await db.query(`
+  // Fetch transactions (either a single transaction or all transactions)
+  let txQuery = `
     SELECT t.*, fa.account_number as from_acc_num, ta.account_number as to_acc_num
     FROM transactions t
     LEFT JOIN accounts fa ON t.from_account_id = fa.id
     LEFT JOIN accounts ta ON t.to_account_id = ta.id
-    ORDER BY t.transaction_date ASC
-  `);
+  `;
+  const txParams = [];
+  if (singleTxId) {
+    txQuery += ' WHERE t.id = $1';
+    txParams.push(singleTxId);
+  }
+  txQuery += ' ORDER BY t.transaction_date ASC';
+
+  const txRes = await db.query(txQuery, txParams);
   const transactions = txRes.rows;
 
   let flaggedCount = 0;
   let newAlertsCount = 0;
+  let updatedAlertsCount = 0;
 
   for (const tx of transactions) {
     const factors = [];
@@ -73,54 +94,101 @@ const runDetectionEngine = async () => {
       let isFlagged = false;
       let factorDesc = '';
 
-      // 1. Large Amount Rule (> $10,000)
+      // 1. Large Amount Rule (> threshold)
       if (rule.condition_type === 'large_amount' && parseFloat(tx.amount) > parseFloat(rule.threshold_value)) {
         isFlagged = true;
-        factorDesc = `Transaction amount of $${parseFloat(tx.amount).toLocaleString()} exceeds threshold of $${parseFloat(rule.threshold_value).toLocaleString()}.`;
-        factors.push({ name: 'Exorbitant Transaction Amount', contribution: 45, description: factorDesc, rule_id: rule.id, severity: rule.risk_level });
+        factorDesc = `Transaction amount of $${parseFloat(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} exceeds threshold of $${parseFloat(rule.threshold_value).toLocaleString('en-US', { minimumFractionDigits: 2 })}.`;
+        factors.push({
+          name: 'Exorbitant Transaction Amount',
+          contribution: 45,
+          description: factorDesc,
+          rule_id: rule.id,
+          severity: rule.risk_level,
+        });
         totalScore += 45;
       }
 
-      // 2. Rapid Transfer Rule (> 3 tx in 10 minutes)
+      // 2. Rapid Transfer Rule (> threshold count within trailing 10-minute window)
       if (rule.condition_type === 'rapid_transfer' && tx.from_account_id) {
-        const rapidRes = await db.query(`
+        const rapidRes = await db.query(
+          `
           SELECT COUNT(*) FROM transactions
           WHERE from_account_id = $1
-            AND transaction_date BETWEEN ($2::timestamp - INTERVAL '10 minutes') AND ($2::timestamp + INTERVAL '10 minutes')
-        `, [tx.from_account_id, tx.transaction_date]);
+            AND transaction_date <= $2
+            AND transaction_date >= ($2::timestamp - INTERVAL '10 minutes')
+        `,
+          [tx.from_account_id, tx.transaction_date]
+        );
 
         const count = parseInt(rapidRes.rows[0].count, 10);
-        if (count > parseInt(rule.threshold_value, 10)) {
+        const threshold = parseInt(rule.threshold_value, 10);
+        if (count > threshold) {
           isFlagged = true;
-          factorDesc = `Account sent ${count} rapid transactions within a 10-minute window (threshold: ${rule.threshold_value}).`;
-          factors.push({ name: 'High Frequency Rapid Velocity', contribution: 35, description: factorDesc, rule_id: rule.id, severity: rule.risk_level });
+          factorDesc = `Account sent ${count} rapid transactions within a 10-minute trailing window (threshold: > ${threshold} transactions).`;
+          factors.push({
+            name: 'High Frequency Rapid Velocity',
+            contribution: 35,
+            description: factorDesc,
+            rule_id: rule.id,
+            severity: rule.risk_level,
+          });
           totalScore += 35;
         }
       }
 
-      // 3. Circular Transaction Rule (money returns to sender within 5 hops)
+      // 3. Circular Transaction Rule (money returns to origin sender within <= threshold hops)
       if (rule.condition_type === 'circular_transaction' && tx.from_account_id && tx.to_account_id) {
-        const cycleRes = await db.query(`
-          WITH RECURSIVE tx_path(origin, current_node, depth, visited) AS (
-            SELECT from_account_id, to_account_id, 1, ARRAY[from_account_id, to_account_id]
+        const cycleRes = await db.query(
+          `
+          WITH RECURSIVE tx_path(origin, current_node, depth, visited, last_date) AS (
+            SELECT from_account_id, to_account_id, 1, ARRAY[from_account_id, to_account_id], transaction_date
             FROM transactions
             WHERE id = $1
             UNION ALL
-            SELECT p.origin, t.to_account_id, p.depth + 1, p.visited || t.to_account_id
+            SELECT p.origin, t.to_account_id, p.depth + 1, p.visited || t.to_account_id, t.transaction_date
             FROM transactions t
             JOIN tx_path p ON t.from_account_id = p.current_node
             WHERE p.depth < $2
-              AND NOT (t.to_account_id = ANY(p.visited)) OR (t.to_account_id = p.origin)
+              AND t.transaction_date >= p.last_date
+              AND (
+                NOT (t.to_account_id = ANY(p.visited))
+                OR (t.to_account_id = p.origin AND p.depth >= 2)
+              )
           )
           SELECT depth FROM tx_path WHERE current_node = origin AND depth > 1 LIMIT 1;
-        `, [tx.id, parseInt(rule.threshold_value, 10)]);
+        `,
+          [tx.id, parseInt(rule.threshold_value, 10)]
+        );
 
         if (cycleRes.rows.length > 0) {
           isFlagged = true;
           const hops = cycleRes.rows[0].depth;
           factorDesc = `Circular fund flow detected: capital returned to origin sender within ${hops} hops.`;
-          factors.push({ name: 'Circular Laundering Loop', contribution: 50, description: factorDesc, rule_id: rule.id, severity: rule.risk_level });
+          factors.push({
+            name: 'Circular Laundering Loop',
+            contribution: 50,
+            description: factorDesc,
+            rule_id: rule.id,
+            severity: rule.risk_level,
+          });
           totalScore += 50;
+        }
+      }
+
+      // 4. Suspicious Round Number Flow (amount >= threshold and perfectly rounded)
+      if (rule.condition_type === 'round_number') {
+        const threshold = parseFloat(rule.threshold_value);
+        if (isRoundNumber(tx.amount, threshold)) {
+          isFlagged = true;
+          factorDesc = `Transaction amount of $${parseFloat(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} is a high-denomination rounded sum meeting or exceeding threshold $${threshold.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`;
+          factors.push({
+            name: 'Suspicious Round Number Flow',
+            contribution: 25,
+            description: factorDesc,
+            rule_id: rule.id,
+            severity: rule.risk_level,
+          });
+          totalScore += 25;
         }
       }
 
@@ -140,67 +208,75 @@ const runDetectionEngine = async () => {
       }
     }
 
-    if (factors.length > 0) {
-      const finalScore = Math.min(100, Math.max(10, totalScore));
-      let riskLevel = 'Low';
-      if (finalScore >= 71) riskLevel = 'High';
-      else if (finalScore >= 41) riskLevel = 'Medium';
+    // Determine final score capped between 0 and 100
+    const finalScore = Math.min(100, Math.max(factors.length > 0 ? 10 : 0, totalScore));
+    let riskLevel = 'Low';
+    if (finalScore >= 71) riskLevel = 'High';
+    else if (finalScore >= 41) riskLevel = 'Medium';
 
-      // Insert or update risk score
-      const existingScore = await db.query(
-        "SELECT id FROM risk_scores WHERE entity_type = 'transaction' AND entity_id = $1",
-        [tx.id]
+    // Upsert risk score for this transaction
+    const existingScore = await db.query(
+      "SELECT id FROM risk_scores WHERE entity_type = 'transaction' AND entity_id = $1",
+      [tx.id]
+    );
+
+    let scoreId;
+    if (existingScore.rows.length > 0) {
+      scoreId = existingScore.rows[0].id;
+      await db.query(
+        'UPDATE risk_scores SET score = $1, risk_level = $2, calculated_at = CURRENT_TIMESTAMP WHERE id = $3',
+        [finalScore, riskLevel, scoreId]
+      );
+      await db.query('DELETE FROM risk_factors WHERE risk_score_id = $1', [scoreId]);
+    } else {
+      const scoreRes = await db.query(
+        "INSERT INTO risk_scores (entity_type, entity_id, score, risk_level) VALUES ('transaction', $1, $2, $3) RETURNING id",
+        [tx.id, finalScore, riskLevel]
+      );
+      scoreId = scoreRes.rows[0].id;
+    }
+
+    // Insert risk factor evidence items
+    for (const f of factors) {
+      await db.query(
+        'INSERT INTO risk_factors (risk_score_id, factor_name, contribution, description) VALUES ($1, $2, $3, $4)',
+        [scoreId, f.name, f.contribution, f.description]
       );
 
-      let scoreId;
-      if (existingScore.rows.length > 0) {
-        scoreId = existingScore.rows[0].id;
+      // Create or update alert (prevent duplicate alerts)
+      const existingAlert = await db.query(
+        'SELECT id, status FROM alerts WHERE transaction_id = $1 AND rule_id = $2',
+        [tx.id, f.rule_id]
+      );
+      if (existingAlert.rows.length === 0) {
         await db.query(
-          'UPDATE risk_scores SET score = $1, risk_level = $2, calculated_at = CURRENT_TIMESTAMP WHERE id = $3',
-          [finalScore, riskLevel, scoreId]
+          `INSERT INTO alerts (transaction_id, rule_id, alert_type, severity, description, status)
+           VALUES ($1, $2, $3, $4, $5, 'open')`,
+          [tx.id, f.rule_id, f.name, f.severity.toLowerCase(), f.description]
         );
-        await db.query('DELETE FROM risk_factors WHERE risk_score_id = $1', [scoreId]);
+        newAlertsCount++;
       } else {
-        const scoreRes = await db.query(
-          "INSERT INTO risk_scores (entity_type, entity_id, score, risk_level) VALUES ('transaction', $1, $2, $3) RETURNING id",
-          [tx.id, finalScore, riskLevel]
-        );
-        scoreId = scoreRes.rows[0].id;
-      }
-
-      // Insert factors
-      for (const f of factors) {
+        // If alert already exists, keep its existing status and update description if changed
         await db.query(
-          'INSERT INTO risk_factors (risk_score_id, factor_name, contribution, description) VALUES ($1, $2, $3, $4)',
-          [scoreId, f.name, f.contribution, f.description]
+          'UPDATE alerts SET description = $1, severity = $2 WHERE id = $3',
+          [f.description, f.severity.toLowerCase(), existingAlert.rows[0].id]
         );
-
-        // Auto-generate alert (Phase 4)
-        const existingAlert = await db.query(
-          'SELECT id FROM alerts WHERE transaction_id = $1 AND rule_id = $2',
-          [tx.id, f.rule_id]
-        );
-        if (existingAlert.rows.length === 0) {
-          await db.query(
-            `INSERT INTO alerts (transaction_id, rule_id, alert_type, severity, description, status)
-             VALUES ($1, $2, $3, $4, $5, 'open')`,
-            [tx.id, f.rule_id, f.name, f.severity.toLowerCase(), f.description]
-          );
-          newAlertsCount++;
-        }
+        updatedAlertsCount++;
       }
     }
   }
 
-  // Update entity relationships (Phase 5)
+  // Update entity relationships
   await rebuildEntityRelationships();
 
   return {
     success: true,
-    message: `Detection run completed. Examined ${transactions.length} transactions. New flags: ${flaggedCount}, New alerts: ${newAlertsCount}`,
+    message: `Detection run completed. Examined ${transactions.length} transaction(s). New flags: ${flaggedCount}, New alerts: ${newAlertsCount}, Updated alerts: ${updatedAlertsCount}.`,
     totalTransactions: transactions.length,
     flaggedCount,
     newAlertsCount,
+    updatedAlertsCount,
+    executedAt: new Date().toISOString(),
   };
 };
 

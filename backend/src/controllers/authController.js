@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { logAudit } = require('../middleware/audit');
 
 const SALT_ROUNDS = 10;
 const VALID_ROLES = ['investigator', 'admin', 'compliance_officer'];
@@ -51,6 +52,18 @@ const register = async (req, res) => {
 
     const newUser = insertResult.rows[0];
 
+    // Log registration
+    await logAudit({
+      userId: newUser.id,
+      userRole: newUser.role,
+      action: 'USER_REGISTERED',
+      entityType: 'user',
+      entityId: newUser.id,
+      ipAddress: req.ip,
+      outcome: 'SUCCESS',
+      details: { email: newUser.email, role: newUser.role },
+    });
+
     // Generate JWT token
     const token = jwt.sign(
       {
@@ -97,6 +110,16 @@ const login = async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
+      await logAudit({
+        userId: null,
+        userRole: null,
+        action: 'USER_LOGIN_FAILED',
+        entityType: 'auth',
+        ipAddress: req.ip,
+        outcome: 'FAILURE',
+        details: { attemptedEmail: email.trim(), reason: 'User not found' },
+      });
+
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password.',
@@ -106,6 +129,17 @@ const login = async (req, res) => {
     const user = userResult.rows[0];
 
     if (user.status !== 'active') {
+      await logAudit({
+        userId: user.id,
+        userRole: user.role,
+        action: 'USER_LOGIN_FAILED',
+        entityType: 'auth',
+        entityId: user.id,
+        ipAddress: req.ip,
+        outcome: 'FAILURE',
+        details: { email: user.email, reason: `Account status is ${user.status}` },
+      });
+
       return res.status(403).json({
         success: false,
         message: `Account is ${user.status}. Please contact administrator.`,
@@ -114,6 +148,17 @@ const login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
+      await logAudit({
+        userId: user.id,
+        userRole: user.role,
+        action: 'USER_LOGIN_FAILED',
+        entityType: 'auth',
+        entityId: user.id,
+        ipAddress: req.ip,
+        outcome: 'FAILURE',
+        details: { email: user.email, reason: 'Invalid password credentials' },
+      });
+
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password.',
@@ -131,6 +176,17 @@ const login = async (req, res) => {
       process.env.JWT_SECRET || 'fcip_super_secret_jwt_key_2026_financial_crime_intel',
       { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
+
+    await logAudit({
+      userId: user.id,
+      userRole: user.role,
+      action: 'USER_LOGIN_SUCCESS',
+      entityType: 'auth',
+      entityId: user.id,
+      ipAddress: req.ip,
+      outcome: 'SUCCESS',
+      details: { email: user.email, role: user.role },
+    });
 
     const { password_hash, ...safeUser } = user;
 

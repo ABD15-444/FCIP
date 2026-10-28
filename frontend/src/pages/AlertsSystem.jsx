@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { alertService } from '../services/api';
-import { AlertCircle, AlertTriangle, ShieldCheck, CheckCircle2, UserPlus, Eye, Clock, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, UserPlus, Eye, Clock, X, Search, Filter, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const AlertsSystem = ({ onOpenCaseFromAlert }) => {
@@ -9,10 +9,14 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
+  const [search, setSearch] = useState('');
 
   // Detail Modal State
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [closureReason, setClosureReason] = useState('');
+  const [investigatorNote, setInvestigatorNote] = useState('');
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
 
   useEffect(() => {
     loadAlerts();
@@ -24,6 +28,7 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
       const data = await alertService.getAlerts({
         status: statusFilter !== 'all' ? statusFilter : undefined,
         severity: severityFilter !== 'all' ? severityFilter : undefined,
+        search: search || undefined,
       });
       if (data.success) setAlerts(data.alerts);
     } catch (err) {
@@ -35,6 +40,9 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
 
   const openDetail = async (id) => {
     setDetailLoading(true);
+    setShowCloseDialog(false);
+    setClosureReason('');
+    setInvestigatorNote('');
     try {
       const data = await alertService.getAlertDetail(id);
       if (data.success) setSelectedAlert(data.alert);
@@ -45,12 +53,13 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
     }
   };
 
-  const handleUpdateStatus = async (id, status) => {
+  const handleUpdateStatus = async (id, status, extra = {}) => {
     try {
-      await alertService.updateStatus(id, status);
+      await alertService.updateStatus(id, status, extra);
       if (selectedAlert?.id === id) {
-        setSelectedAlert({ ...selectedAlert, status });
+        setSelectedAlert({ ...selectedAlert, status, ...extra });
       }
+      setShowCloseDialog(false);
       loadAlerts();
     } catch (err) {
       console.error(err);
@@ -61,7 +70,12 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
     try {
       await alertService.assignAlert(id, user.id);
       if (selectedAlert?.id === id) {
-        setSelectedAlert({ ...selectedAlert, assigned_to: user.id, assignee_first_name: user.first_name, assignee_last_name: user.last_name });
+        setSelectedAlert({
+          ...selectedAlert,
+          assigned_to: user.id,
+          assignee_first_name: user.first_name,
+          assignee_last_name: user.last_name,
+        });
       }
       loadAlerts();
     } catch (err) {
@@ -87,6 +101,18 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search alerts or accounts..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && loadAlerts()}
+              className="bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
@@ -106,6 +132,7 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
             <option value="all">All Statuses</option>
             <option value="open">Open</option>
             <option value="acknowledged">Acknowledged</option>
+            <option value="under_investigation">Under Investigation</option>
             <option value="closed">Closed</option>
           </select>
         </div>
@@ -151,8 +178,14 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
                     >
                       {alert.severity}
                     </span>
-                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                      {alert.status}
+                    <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded ${
+                      alert.status === 'closed'
+                        ? 'bg-slate-800 text-slate-400'
+                        : alert.status === 'under_investigation'
+                        ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                        : 'bg-slate-800 text-slate-200'
+                    }`}>
+                      {alert.status.replace('_', ' ')}
                     </span>
                   </div>
 
@@ -201,7 +234,7 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
                 {selectedAlert.severity} Severity
               </span>
               <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                {selectedAlert.status}
+                {selectedAlert.status.replace('_', ' ')}
               </span>
             </div>
 
@@ -252,6 +285,56 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
               </div>
             )}
 
+            {/* Closure Dialog */}
+            {showCloseDialog && (
+              <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-xs space-y-3">
+                <h5 className="font-bold text-red-400 uppercase font-mono">Confirm Alert Closure</h5>
+                <div>
+                  <label className="block text-slate-300 mb-1">Closure Reason / Resolution Category</label>
+                  <select
+                    value={closureReason}
+                    onChange={(e) => setClosureReason(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  >
+                    <option value="">-- Select Reason --</option>
+                    <option value="False Positive (Legitimate Business Flow)">False Positive (Legitimate Business Flow)</option>
+                    <option value="Duplicate Alert (Covered in Prior Case)">Duplicate Alert (Covered in Prior Case)</option>
+                    <option value="Low Risk Variance Resolved">Low Risk Variance Resolved</option>
+                    <option value="Case Dossier Created">Case Dossier Created</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1">Investigator Closure Notes</label>
+                  <textarea
+                    rows={2}
+                    value={investigatorNote}
+                    onChange={(e) => setInvestigatorNote(e.target.value)}
+                    placeholder="Document investigation conclusion..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowCloseDialog(false)}
+                    className="px-3 py-1.5 text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleUpdateStatus(selectedAlert.id, 'closed', {
+                        closure_reason: closureReason || 'Resolved by investigator',
+                        investigator_notes: investigatorNote,
+                      })
+                    }
+                    className="px-3.5 py-1.5 rounded-xl bg-red-500 hover:bg-red-400 text-white font-bold"
+                  >
+                    Confirm & Close Alert
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Action Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
               <div className="flex items-center gap-2">
@@ -269,7 +352,7 @@ const AlertsSystem = ({ onOpenCaseFromAlert }) => {
                   Assign to Me
                 </button>
                 <button
-                  onClick={() => handleUpdateStatus(selectedAlert.id, 'closed')}
+                  onClick={() => setShowCloseDialog(true)}
                   className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-xs font-medium text-red-400 border border-red-500/20"
                 >
                   Close Alert

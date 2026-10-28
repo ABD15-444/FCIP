@@ -3,14 +3,50 @@ const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const { runDetectionEngine, initDetectionRules } = require('../services/detectionEngine');
+const { logAudit } = require('../middleware/audit');
 
 // POST /api/detection/run - trigger detection on all transactions
 router.post('/run', authenticateToken, async (req, res) => {
   try {
     const summary = await runDetectionEngine();
+
+    // Log run history in detection_run_history table
+    await db.query(
+      `INSERT INTO detection_run_history (initiated_by, total_scanned, flagged_count, new_alerts_count, updated_alerts_count, status)
+       VALUES ($1, $2, $3, $4, $5, 'COMPLETED')`,
+      [req.user.id, summary.totalTransactions, summary.flaggedCount, summary.newAlertsCount, summary.updatedAlertsCount]
+    );
+
+    // Audit log
+    await logAudit({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'DETECTION_RUN_EXECUTED',
+      entityType: 'detection_engine',
+      ipAddress: req.ip,
+      outcome: 'SUCCESS',
+      details: summary,
+    });
+
     return res.status(200).json(summary);
   } catch (error) {
     console.error('Run detection error:', error);
+    await db.query(
+      `INSERT INTO detection_run_history (initiated_by, total_scanned, flagged_count, new_alerts_count, updated_alerts_count, status, error_message)
+       VALUES ($1, 0, 0, 0, 0, 'FAILED', $2)`,
+      [req.user.id, error.message]
+    );
+
+    await logAudit({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'DETECTION_RUN_EXECUTED',
+      entityType: 'detection_engine',
+      ipAddress: req.ip,
+      outcome: 'FAILURE',
+      details: { error: error.message },
+    });
+
     res.status(500).json({ success: false, message: 'Detection engine failure.', error: error.message });
   }
 });
@@ -41,6 +77,17 @@ router.post('/rules', authenticateToken, authorizeRoles('admin'), async (req, re
       [rule_name, condition_type, threshold_value, risk_level.toLowerCase(), status || 'active']
     );
 
+    await logAudit({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'DETECTION_RULE_CREATED',
+      entityType: 'detection_rule',
+      entityId: insertRes.rows[0].id,
+      ipAddress: req.ip,
+      outcome: 'SUCCESS',
+      details: { ruleName: rule_name, condition_type, threshold_value, risk_level },
+    });
+
     res.status(201).json({ success: true, message: 'Detection rule created.', rule: insertRes.rows[0] });
   } catch (error) {
     console.error('Create rule error:', error);
@@ -63,7 +110,7 @@ router.get('/risk/:entityType/:entityId', authenticateToken, async (req, res) =>
         score: {
           entity_type: entityType,
           entity_id: parseInt(entityId, 10),
-          score: 15,
+          score: 0,
           risk_level: 'Low',
           calculated_at: new Date().toISOString(),
           factors: [],

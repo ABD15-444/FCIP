@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { detectionService } from '../services/api';
-import { Play, ShieldAlert, Plus, CheckCircle2, AlertTriangle, Sliders, RefreshCw } from 'lucide-react';
+import { Play, ShieldAlert, Plus, CheckCircle2, AlertTriangle, Sliders, RefreshCw, Eye } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const DetectionRules = () => {
@@ -94,7 +94,7 @@ const DetectionRules = () => {
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time rule heuristics: Large Amount ($10K+), Rapid Transfers (&gt;3 in 10 mins), and Circular Hop Cycles.
+            Automated detection heuristics: Large Amount (&gt;$10K), Rapid Velocity (&gt;3 tx in 10 mins), Circular Loops (5 hops), and Suspicious Round Numbers (&gt;=$5K).
           </p>
         </div>
 
@@ -121,14 +121,16 @@ const DetectionRules = () => {
       </div>
 
       {runResult && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 text-xs flex items-center justify-between">
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 text-xs flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 font-medium">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
             <span>{runResult.message}</span>
           </div>
-          <span className="font-mono bg-emerald-500/20 px-2 py-0.5 rounded">
-            Alerts Generated: {runResult.newAlertsCount}
-          </span>
+          <div className="flex items-center gap-2 font-mono text-[11px]">
+            <span className="bg-emerald-500/20 px-2 py-0.5 rounded">Scanned: {runResult.totalTransactions}</span>
+            <span className="bg-cyan-500/20 px-2 py-0.5 rounded text-cyan-300">New Alerts: {runResult.newAlertsCount}</span>
+            <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-300">Updated: {runResult.updatedAlertsCount || 0}</span>
+          </div>
         </div>
       )}
 
@@ -164,9 +166,12 @@ const DetectionRules = () => {
                 </div>
 
                 <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-400 font-mono">Trigger Threshold:</span>
+                  <span className="text-slate-400 font-mono">Condition / Threshold:</span>
                   <span className="font-mono font-bold text-white">
-                    {rule.condition_type === 'large_amount' ? `$${parseFloat(rule.threshold_value).toLocaleString()}` : `${rule.threshold_value} units`}
+                    {rule.condition_type === 'large_amount' && `> $${parseFloat(rule.threshold_value).toLocaleString()}`}
+                    {rule.condition_type === 'round_number' && `>= $${parseFloat(rule.threshold_value).toLocaleString()} (Rounded)`}
+                    {rule.condition_type === 'rapid_transfer' && `> ${parseInt(rule.threshold_value, 10)} tx in 10m`}
+                    {rule.condition_type === 'circular_transaction' && `<= ${parseInt(rule.threshold_value, 10)} hops cycle`}
                   </span>
                 </div>
               </div>
@@ -191,8 +196,9 @@ const DetectionRules = () => {
             />
             <button
               onClick={() => inspectRisk(inspectEntity.id)}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700"
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 flex items-center gap-1"
             >
+              <Eye className="w-3.5 h-3.5" />
               Inspect Tx #{inspectEntity.id}
             </button>
           </div>
@@ -203,7 +209,7 @@ const DetectionRules = () => {
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-mono">Composite Score</span>
                   <div className="text-3xl font-extrabold text-white font-mono mt-0.5">
-                    {riskDetail.score} <span className="text-sm text-slate-400 font-sans">/ 100</span>
+                    {Math.round(riskDetail.score)} <span className="text-sm text-slate-400 font-sans">/ 100</span>
                   </div>
                 </div>
                 <span
@@ -223,7 +229,7 @@ const DetectionRules = () => {
                 <h5 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 font-mono">
                   Contributing Factors ({riskDetail.factors?.length || 0})
                 </h5>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
                   {riskDetail.factors?.length > 0 ? (
                     riskDetail.factors.map((f, i) => (
                       <div key={i} className="p-3 rounded-xl bg-slate-900/40 border border-slate-800/80 text-xs">
@@ -274,6 +280,7 @@ const DetectionRules = () => {
                   <option value="large_amount">Large Amount Threshold</option>
                   <option value="rapid_transfer">Rapid Transfer Frequency</option>
                   <option value="circular_transaction">Circular Money Loop</option>
+                  <option value="round_number">Suspicious Round Number Flow</option>
                 </select>
               </div>
 

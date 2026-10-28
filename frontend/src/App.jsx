@@ -1,15 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { alertService } from './services/api';
+import { alertService, dashboardService } from './services/api';
 import Login from './pages/Login';
 import Register from './pages/Register';
+
+// Investigator Operational Pages
 import DashboardOverview from './pages/DashboardOverview';
 import DataManagement from './pages/DataManagement';
 import DetectionRules from './pages/DetectionRules';
 import AlertsSystem from './pages/AlertsSystem';
 import NetworkGraph from './pages/NetworkGraph';
 import CaseManagement from './pages/CaseManagement';
+
+// Administrator Dedicated Pages
+import AdminDashboard from './pages/AdminDashboard';
+import UserManagement from './pages/UserManagement';
+import RolesPermissions from './pages/RolesPermissions';
+import DetectionConfig from './pages/DetectionConfig';
+import DataAdmin from './pages/DataAdmin';
+import SystemHealth from './pages/SystemHealth';
 import AuditLogs from './pages/AuditLogs';
+
+// Compliance Officer Dedicated Pages
+import ComplianceDashboard from './pages/ComplianceDashboard';
+import ReviewQueue from './pages/ReviewQueue';
+import CaseReviews from './pages/CaseReviews';
+import SARDossierReview from './pages/SARDossierReview';
+import ComplianceRiskOversight from './pages/ComplianceRiskOversight';
+import ComplianceReports from './pages/ComplianceReports';
 
 import {
   ShieldAlert,
@@ -21,23 +39,53 @@ import {
   PieChart,
   ClipboardList,
   LogOut,
-  UserCheck,
-  ChevronRight,
+  Users,
   ShieldCheck,
+  Server,
+  Layers,
+  Activity,
   Menu,
-  X
+  X,
+  Inbox,
+  FileCheck2,
+  AlertTriangle
 } from 'lucide-react';
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
-  const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard' | 'data' | 'detection' | 'alerts' | 'network' | 'cases' | 'audit'
+  const isAdmin = user?.role === 'admin';
+  const isCompliance = user?.role === 'compliance_officer';
+
+  // Default page depends on authenticated role
+  const getInitialPage = () => {
+    if (user?.role === 'admin') return 'admin_dashboard';
+    if (user?.role === 'compliance_officer') return 'compliance_dashboard';
+    return 'dashboard';
+  };
+
+  const [currentPage, setCurrentPage] = useState(getInitialPage());
+  const [selectedCaseParam, setSelectedCaseParam] = useState(null);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [prefillAlertForCase, setPrefillAlertForCase] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [systemHealthy, setSystemHealthy] = useState(true);
+
+  // Sync default starting page when user role loads
+  useEffect(() => {
+    if (isAdmin && !currentPage.startsWith('admin') && currentPage !== 'audit') {
+      setCurrentPage('admin_dashboard');
+    } else if (isCompliance && !currentPage.startsWith('compliance')) {
+      setCurrentPage('compliance_dashboard');
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     loadAlertCount();
-    const interval = setInterval(loadAlertCount, 15000);
+    checkHealth();
+    const interval = setInterval(() => {
+      loadAlertCount();
+      checkHealth();
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -50,27 +98,68 @@ const MainLayout = () => {
     }
   };
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard & Reports', icon: PieChart, phases: 'Phases 1 & 7' },
-    { id: 'data', label: 'Financial Data & CSV', icon: Database, phases: 'Phase 2' },
-    { id: 'detection', label: 'Detection Rules & Risk', icon: Sliders, phases: 'Phase 3' },
-    { id: 'alerts', label: 'Suspicious Alerts', icon: Bell, badge: unreadAlerts, phases: 'Phase 4' },
-    { id: 'network', label: 'Network Graph Flow', icon: Network, phases: 'Phase 5' },
-    { id: 'cases', label: 'Case Dossiers', icon: Briefcase, phases: 'Phase 6' },
+  const checkHealth = async () => {
+    try {
+      const res = await dashboardService.getSystemHealth();
+      setSystemHealthy(res.status === 'healthy');
+    } catch {
+      setSystemHealthy(false);
+    }
+  };
+
+  // Dedicated Compliance Officer Navigation (Section 3 Requirements)
+  const complianceNavItems = [
+    { id: 'compliance_dashboard', label: 'Compliance Dashboard', icon: Activity, subtitle: 'Oversight Telemetry' },
+    { id: 'compliance_queue', label: 'Review Queue', icon: Inbox, subtitle: 'Intake Worklist' },
+    { id: 'compliance_cases', label: 'Case Reviews', icon: Briefcase, subtitle: 'Adjudication Suite' },
+    { id: 'compliance_sars', label: 'SAR & Dossier Review', icon: FileCheck2, subtitle: 'Validation Hub' },
+    { id: 'compliance_oversight', label: 'Compliance Risk Oversight', icon: ShieldAlert, subtitle: 'QA & Efficacy' },
+    { id: 'compliance_reports', label: 'Compliance Reports', icon: PieChart, subtitle: 'Regulatory Analytics' },
+    { id: 'audit', label: 'Audit History', icon: ClipboardList, subtitle: 'Immutable Ledger' },
   ];
 
-  if (user?.role === 'admin') {
-    navItems.push({ id: 'audit', label: 'Audit Trail Logs', icon: ClipboardList, adminOnly: true, phases: 'Phase 8' });
-  }
+  // Dedicated Administrator Navigation
+  const adminNavItems = [
+    { id: 'admin_dashboard', label: 'Admin Dashboard', icon: Activity, subtitle: 'Operations Telemetry' },
+    { id: 'admin_users', label: 'User Management', icon: Users, subtitle: 'Account Directory' },
+    { id: 'admin_roles', label: 'Roles & Permissions', icon: ShieldCheck, subtitle: 'RBAC Policy Matrix' },
+    { id: 'admin_detection', label: 'Detection Configuration', icon: Sliders, subtitle: 'Rule Calibrations' },
+    { id: 'admin_data', label: 'Data Administration', icon: Database, subtitle: 'Dataset Ingest Vault' },
+    { id: 'admin_health', label: 'System Health', icon: Server, subtitle: 'Diagnostic Latency' },
+    { id: 'audit', label: 'Audit Trail Logs', icon: ClipboardList, subtitle: 'Security Ledger' },
+  ];
+
+  // Dedicated Investigator Navigation
+  const investigatorNavItems = [
+    { id: 'dashboard', label: 'Dashboard & Reports', icon: PieChart, subtitle: 'Phases 1 & 7' },
+    { id: 'data', label: 'Financial Data & CSV', icon: Database, subtitle: 'Phase 2' },
+    { id: 'detection', label: 'Detection Rules & Risk', icon: Sliders, subtitle: 'Phase 3' },
+    { id: 'alerts', label: 'Suspicious Alerts', icon: Bell, badge: unreadAlerts, subtitle: 'Phase 4' },
+    { id: 'network', label: 'Network Graph Flow', icon: Network, subtitle: 'Phase 5' },
+    { id: 'cases', label: 'Case Dossiers', icon: Briefcase, subtitle: 'Phase 6' },
+  ];
+
+  const currentNavItems = isAdmin
+    ? adminNavItems
+    : isCompliance
+    ? complianceNavItems
+    : investigatorNavItems;
 
   const handleOpenCaseFromAlert = (alert) => {
     setPrefillAlertForCase(alert);
     setCurrentPage('cases');
   };
 
+  const handleNavigateCompliance = (pageId, params = {}) => {
+    if (params?.caseId) {
+      setSelectedCaseParam(params.caseId);
+    }
+    setCurrentPage(pageId);
+  };
+
   return (
     <div className="min-h-screen flex bg-navy-950 text-slate-100 font-sans">
-      {/* Sidebar Navigation (Phase 8 Final Polish) */}
+      {/* Sidebar Navigation */}
       <aside
         className={`${
           sidebarOpen ? 'w-64' : 'w-20'
@@ -86,7 +175,13 @@ const MainLayout = () => {
               {sidebarOpen && (
                 <div>
                   <span className="font-extrabold text-sm tracking-tight text-white block">FCIP PLATFORM</span>
-                  <span className="text-[9px] text-cyan-400 font-mono block">ALL 8 PHASES ACTIVE</span>
+                  <span className="text-[9px] text-cyan-400 font-mono block">
+                    {isAdmin
+                      ? 'ADMINISTRATOR CONSOLE'
+                      : isCompliance
+                      ? 'COMPLIANCE OVERSIGHT'
+                      : 'INVESTIGATOR WORKSPACE'}
+                  </span>
                 </div>
               )}
             </div>
@@ -101,7 +196,7 @@ const MainLayout = () => {
 
           {/* Navigation Items */}
           <nav className="p-3 space-y-1.5">
-            {navItems.map((item) => {
+            {currentNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentPage === item.id;
               return (
@@ -120,7 +215,12 @@ const MainLayout = () => {
                 >
                   <div className="flex items-center gap-3">
                     <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                    {sidebarOpen && <span>{item.label}</span>}
+                    {sidebarOpen && (
+                      <div className="text-left">
+                        <span className="block leading-tight">{item.label}</span>
+                        {item.subtitle && <span className="text-[9px] text-slate-500 font-mono font-normal block">{item.subtitle}</span>}
+                      </div>
+                    )}
                   </div>
 
                   {sidebarOpen && item.badge > 0 && (
@@ -165,45 +265,87 @@ const MainLayout = () => {
         <header className="h-16 glass-panel border-b border-slate-800/80 px-6 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-slate-400 uppercase">
-              Workspace &gt; <span className="text-white font-semibold capitalize">{currentPage}</span>
+              {isAdmin ? 'System Operations' : 'Workspace'} &gt;{' '}
+              <span className="text-white font-semibold capitalize">
+                {currentPage.replace('admin_', '').replace('_', ' ')}
+              </span>
             </span>
           </div>
 
           <div className="flex items-center gap-4">
             {/* Bell Icon with unread badge */}
             <button
-              onClick={() => setCurrentPage('alerts')}
+              onClick={() => setCurrentPage(isAdmin ? 'audit' : 'alerts')}
               className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-colors"
+              title={isAdmin ? 'Audit Events' : 'Alerts'}
             >
               <Bell className="w-4 h-4" />
-              {unreadAlerts > 0 && (
+              {unreadAlerts > 0 && !isAdmin && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-mono flex items-center justify-center font-bold">
                   {unreadAlerts}
                 </span>
               )}
             </button>
 
-            <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              LIVE TELEMETRY
+            {/* Actual Live Database Health Telemetry */}
+            <div
+              className={`hidden sm:flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-full border ${
+                systemHealthy
+                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                  : 'text-red-400 bg-red-500/10 border-red-500/30'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${systemHealthy ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+              {systemHealthy ? 'DATABASE ONLINE' : 'DATABASE DISCONNECTED'}
             </div>
           </div>
         </header>
 
-        {/* View Router */}
+        {/* View Router with Strict RBAC Isolation */}
         <main className="p-6 flex-1 max-w-7xl w-full mx-auto">
-          {currentPage === 'dashboard' && <DashboardOverview onNavigate={setCurrentPage} />}
-          {currentPage === 'data' && <DataManagement />}
-          {currentPage === 'detection' && <DetectionRules />}
-          {currentPage === 'alerts' && <AlertsSystem onOpenCaseFromAlert={handleOpenCaseFromAlert} />}
-          {currentPage === 'network' && <NetworkGraph />}
-          {currentPage === 'cases' && (
+          {/* Administrator Views */}
+          {isAdmin && currentPage === 'admin_dashboard' && <AdminDashboard onNavigate={setCurrentPage} />}
+          {isAdmin && currentPage === 'admin_users' && <UserManagement />}
+          {isAdmin && currentPage === 'admin_roles' && <RolesPermissions />}
+          {isAdmin && currentPage === 'admin_detection' && <DetectionConfig />}
+          {isAdmin && currentPage === 'admin_data' && <DataAdmin />}
+          {isAdmin && currentPage === 'admin_health' && <SystemHealth />}
+          {isAdmin && currentPage === 'audit' && <AuditLogs />}
+
+          {/* Compliance Officer Views */}
+          {isCompliance && currentPage === 'compliance_dashboard' && (
+            <ComplianceDashboard onNavigate={handleNavigateCompliance} />
+          )}
+          {isCompliance && currentPage === 'compliance_queue' && (
+            <ReviewQueue
+              onSelectCase={(item) => handleNavigateCompliance('compliance_cases', { caseId: item.id })}
+            />
+          )}
+          {isCompliance && currentPage === 'compliance_cases' && (
+            <CaseReviews
+              initialCaseId={selectedCaseParam}
+              onBack={() => setCurrentPage('compliance_queue')}
+            />
+          )}
+          {isCompliance && currentPage === 'compliance_sars' && <SARDossierReview />}
+          {isCompliance && currentPage === 'compliance_oversight' && (
+            <ComplianceRiskOversight onNavigate={handleNavigateCompliance} />
+          )}
+          {isCompliance && currentPage === 'compliance_reports' && <ComplianceReports />}
+          {isCompliance && currentPage === 'audit' && <AuditLogs />}
+
+          {/* Investigator Views */}
+          {!isAdmin && !isCompliance && currentPage === 'dashboard' && <DashboardOverview onNavigate={setCurrentPage} />}
+          {!isAdmin && !isCompliance && currentPage === 'data' && <DataManagement />}
+          {!isAdmin && !isCompliance && currentPage === 'detection' && <DetectionRules />}
+          {!isAdmin && !isCompliance && currentPage === 'alerts' && <AlertsSystem onOpenCaseFromAlert={handleOpenCaseFromAlert} />}
+          {!isAdmin && !isCompliance && currentPage === 'network' && <NetworkGraph />}
+          {!isAdmin && !isCompliance && currentPage === 'cases' && (
             <CaseManagement
               prefillAlert={prefillAlertForCase}
               onCaseCreated={() => setPrefillAlertForCase(null)}
             />
           )}
-          {currentPage === 'audit' && user?.role === 'admin' && <AuditLogs />}
         </main>
       </div>
     </div>
@@ -257,7 +399,7 @@ const AppContent = () => {
       </div>
 
       <footer className="text-center text-xs text-slate-500 font-mono py-4">
-        Financial Crime Intelligence Platform • Full 8-Phase Enterprise Architecture
+        Financial Crime Intelligence Platform • Full Enterprise Architecture with Dedicated Admin Console
       </footer>
     </div>
   );

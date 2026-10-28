@@ -1,17 +1,41 @@
 const db = require('../config/db');
 
-const logAudit = async (userId, action, entityType, entityId, ipAddress, details) => {
+/**
+ * Persist an immutable audit log entry.
+ * Prevents logging passwords, tokens, or unnecessary PII.
+ */
+const logAudit = async ({
+  userId = null,
+  userRole = null,
+  action,
+  entityType = null,
+  entityId = null,
+  ipAddress = '127.0.0.1',
+  outcome = 'SUCCESS',
+  details = {},
+}) => {
   try {
+    // Sanitize details to guarantee sensitive tokens and passwords are never logged
+    let sanitizedDetails = { ...details };
+    const sensitiveKeys = ['password', 'password_hash', 'token', 'jwt', 'secret', 'authorization'];
+    for (const key of Object.keys(sanitizedDetails)) {
+      if (sensitiveKeys.some((s) => key.toLowerCase().includes(s))) {
+        sanitizedDetails[key] = '[REDACTED]';
+      }
+    }
+
     await db.query(
-      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, ip_address, details)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO audit_logs (user_id, user_role, action, entity_type, entity_id, ip_address, outcome, details)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
-        userId || null,
+        userId,
+        userRole,
         action,
-        entityType || null,
-        entityId || null,
+        entityType,
+        entityId ? parseInt(entityId, 10) || null : null,
         ipAddress || '127.0.0.1',
-        typeof details === 'object' ? JSON.stringify(details) : JSON.stringify({ message: details }),
+        outcome,
+        JSON.stringify(sanitizedDetails),
       ]
     );
   } catch (error) {
@@ -19,27 +43,6 @@ const logAudit = async (userId, action, entityType, entityId, ipAddress, details
   }
 };
 
-const auditMiddleware = (action, entityType = null) => {
-  return async (req, res, next) => {
-    const originalJson = res.json.bind(res);
-    res.json = function (body) {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        const userId = req.user ? req.user.id : null;
-        const entityId = req.params?.id || body?.id || body?.data?.id || null;
-        const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
-        logAudit(userId, action, entityType, entityId ? parseInt(entityId, 10) || null : null, ip, {
-          route: req.originalUrl,
-          method: req.method,
-          params: req.params,
-        });
-      }
-      return originalJson(body);
-    };
-    next();
-  };
-};
-
 module.exports = {
   logAudit,
-  auditMiddleware,
 };
