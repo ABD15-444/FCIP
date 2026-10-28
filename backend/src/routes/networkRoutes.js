@@ -3,6 +3,85 @@ const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken } = require('../middleware/auth');
 
+// GET /api/network/graph - return global network overview across recent transactions
+router.get('/graph', authenticateToken, async (req, res) => {
+  try {
+    const txRes = await db.query(`
+      SELECT
+        t.id, t.from_account_id, t.to_account_id, t.amount, t.currency, t.transaction_date,
+        fa.account_number as from_acc_num, ta.account_number as to_acc_num,
+        fc.first_name as from_first_name, fc.last_name as from_last_name,
+        tc.first_name as to_first_name, tc.last_name as to_last_name,
+        rs.score as tx_risk_score, rs.risk_level as tx_risk_level
+      FROM transactions t
+      LEFT JOIN accounts fa ON t.from_account_id = fa.id
+      LEFT JOIN customers fc ON fa.customer_id = fc.id
+      LEFT JOIN accounts ta ON t.to_account_id = ta.id
+      LEFT JOIN customers tc ON ta.customer_id = tc.id
+      LEFT JOIN risk_scores rs ON rs.entity_type = 'transaction' AND rs.entity_id = t.id
+      ORDER BY t.transaction_date DESC
+      LIMIT 100
+    `);
+
+    const nodeMap = new Map();
+    const links = [];
+
+    for (const t of txRes.rows) {
+      if (t.from_account_id) {
+        const fromNodeId = `acc_${t.from_account_id}`;
+        if (!nodeMap.has(fromNodeId)) {
+          nodeMap.set(fromNodeId, {
+            id: fromNodeId,
+            name: t.from_acc_num || `Acc #${t.from_account_id}`,
+            label: `${t.from_acc_num || `Acc #${t.from_account_id}`} (${t.from_first_name || 'Sender'})`,
+            type: 'account',
+            accountId: t.from_account_id,
+            riskLevel: t.tx_risk_level || 'Low',
+            riskScore: t.tx_risk_score || 30,
+          });
+        }
+      }
+
+      if (t.to_account_id) {
+        const toNodeId = `acc_${t.to_account_id}`;
+        if (!nodeMap.has(toNodeId)) {
+          nodeMap.set(toNodeId, {
+            id: toNodeId,
+            name: t.to_acc_num || `Acc #${t.to_account_id}`,
+            label: `${t.to_acc_num || `Acc #${t.to_account_id}`} (${t.to_first_name || 'Recipient'})`,
+            type: 'account',
+            accountId: t.to_account_id,
+            riskLevel: t.tx_risk_level || 'Low',
+            riskScore: t.tx_risk_score || 30,
+          });
+        }
+      }
+
+      if (t.from_account_id && t.to_account_id) {
+        links.push({
+          id: `tx_${t.id}`,
+          source: `acc_${t.from_account_id}`,
+          target: `acc_${t.to_account_id}`,
+          amount: parseFloat(t.amount),
+          currency: t.currency,
+          date: t.transaction_date,
+          riskLevel: t.tx_risk_level || 'Low',
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      nodes: Array.from(nodeMap.values()),
+      links,
+      centerAccount: nodeMap.size > 0 ? Array.from(nodeMap.values())[0] : null,
+    });
+  } catch (error) {
+    console.error('Global graph build error:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate global network graph.' });
+  }
+});
+
 // GET /api/network/graph/:accountId - return nodes and edges for network around given account
 router.get('/graph/:accountId', authenticateToken, async (req, res) => {
   try {

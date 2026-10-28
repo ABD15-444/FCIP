@@ -75,7 +75,7 @@ const ComplianceRiskOversight = ({ onNavigate }) => {
             <FileQuestion className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-3xl font-bold font-mono text-amber-400">
-            {loading ? '-' : data?.documentationIssues?.length || 0}
+            {loading ? '-' : data?.documentationWarnings?.length || data?.documentationIssues?.length || 0}
           </div>
           <p className="text-[11px] text-slate-500 mt-1">Cases submitted with zero linked alerts</p>
         </div>
@@ -86,7 +86,7 @@ const ComplianceRiskOversight = ({ onNavigate }) => {
             <Sliders className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="text-3xl font-bold font-mono text-cyan-400">
-            {loading ? '-' : data?.rules?.length || 0}
+            {loading ? '-' : (data?.rules?.length || data?.rulesSummary?.length || 0)}
           </div>
           <p className="text-[11px] text-slate-500 mt-1">Active regulatory detection triggers</p>
         </div>
@@ -218,51 +218,60 @@ const ComplianceRiskOversight = ({ onNavigate }) => {
                     Loading rule matrix...
                   </td>
                 </tr>
-              ) : !data?.rules || data.rules.length === 0 ? (
+              ) : (!data?.rules && !data?.rulesSummary) || (data?.rules || data?.rulesSummary || []).length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-500 font-mono">
                     No active rules found.
                   </td>
                 </tr>
               ) : (
-                data.rules.map((rule) => (
+                (data?.rules || data?.rulesSummary || []).map((rule) => {
+                  const ruleName = rule.name || rule.rule_name;
+                  const ruleCode = rule.rule_code || ('RULE-00' + rule.id);
+                  const ruleSeverity = rule.severity || rule.risk_level || 'medium';
+                  const isActive = isActive !== undefined ? isActive : (rule.status === 'active');
+                  const alertCount = rule.alert_count !== undefined ? rule.alert_count : (parseInt(rule.triggered_alerts_count, 10) || 0);
+                  const ruleDesc = rule.description || ('Detection condition: ' + (rule.condition_type || 'standard') + ' with threshold ' + (rule.threshold_value || 'N/A'));
+
+                  return (
                   <tr key={rule.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3 pr-2 font-medium text-white max-w-[200px] truncate">
-                      {rule.name}
+                      {ruleName}
                       <span className="block text-[10px] text-cyan-400 font-mono">
-                        {rule.rule_code || `RULE-${rule.id}`}
+                        {ruleCode}
                       </span>
                     </td>
                     <td className="py-3 pr-2">
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-mono uppercase font-bold ${
-                          rule.severity === 'critical'
+                          ruleSeverity === 'critical'
                             ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                             : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                         }`}
                       >
-                        {rule.severity}
+                        {ruleSeverity}
                       </span>
                     </td>
                     <td className="py-3 pr-2">
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-mono uppercase ${
-                          rule.is_active
+                          isActive
                             ? 'bg-emerald-500/20 text-emerald-400'
                             : 'bg-slate-800 text-slate-500'
                         }`}
                       >
-                        {rule.is_active ? 'ACTIVE' : 'INACTIVE'}
+                        {isActive ? 'ACTIVE' : 'INACTIVE'}
                       </span>
                     </td>
                     <td className="py-3 pr-2 font-mono text-white font-bold">
-                      {rule.alert_count || 0}
+                      {alertCount}
                     </td>
                     <td className="py-3 text-slate-400 max-w-[320px] truncate">
-                      {rule.description}
+                      {ruleDesc}
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>

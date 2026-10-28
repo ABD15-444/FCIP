@@ -9,6 +9,7 @@ router.post('/login', login);
 
 // Protected routes
 router.get('/profile', authenticateToken, getProfile);
+router.get('/me', authenticateToken, getProfile);
 
 // Role testing demo route
 router.get('/investigator-zone', authenticateToken, authorizeRoles('investigator', 'admin'), (req, res) => {

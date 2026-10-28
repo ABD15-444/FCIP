@@ -272,7 +272,7 @@ const SARDossierReview = () => {
                 </div>
 
                 <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed max-h-[350px] overflow-y-auto">
-                  {selectedReport.summary || selectedReport.content || 'No text narrative embedded in this dossier export.'}
+                  {renderNarrative(selectedReport)}
                 </div>
               </div>
 

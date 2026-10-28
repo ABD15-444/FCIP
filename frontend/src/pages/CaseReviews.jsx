@@ -33,21 +33,21 @@ const CaseReviews = ({ initialCaseId, onBack }) => {
     try {
       setLoadingList(true);
       const res = await caseService.getCases();
-      // Handle either res.cases or res.data
-      const list = res.cases || res.data || [];
-      // Filter for compliance workflow statuses or show all
+      const list = Array.isArray(res) ? res : (res?.cases || res?.data || []);
       const reviewable = list.filter((c) =>
         ['submitted_for_review', 'under_compliance_review', 'returned_for_correction', 'compliance_accepted', 'escalated'].includes(c.status)
       );
-      setCases(reviewable.length > 0 ? reviewable : list);
+      const targetList = reviewable.length > 0 ? reviewable : list;
+      setCases(targetList);
 
-      if (!selectedCaseId && reviewable.length > 0) {
-        setSelectedCaseId(reviewable[0].id);
-      } else if (!selectedCaseId && list.length > 0) {
-        setSelectedCaseId(list[0].id);
-      }
+      setSelectedCaseId(prev => {
+        if (prev && targetList.some(c => c.id === prev)) return prev;
+        if (initialCaseId && targetList.some(c => c.id === initialCaseId)) return initialCaseId;
+        return targetList.length > 0 ? targetList[0].id : null;
+      });
     } catch (err) {
-      console.error(err);
+      console.error('Error loading review cases:', err);
+      setFeedbackMsg({ text: err.response?.data?.message || 'Failed to retrieve cases for compliance roster.', type: 'error' });
     } finally {
       setLoadingList(false);
     }
@@ -58,13 +58,13 @@ const CaseReviews = ({ initialCaseId, onBack }) => {
     if (!id) return;
     try {
       setLoadingDetail(true);
+      setFeedbackMsg({ text: '', type: '' });
       const res = await caseService.getCaseDetail(id);
-      // Backend returns { success: true, case: caseData }
       const detail = res.case || res.data || res;
       setCaseDetails(detail);
     } catch (err) {
       console.error(err);
-      setFeedbackMsg({ text: 'Failed to load case dossier.', type: 'error' });
+      setFeedbackMsg({ text: err.response?.data?.message || 'Failed to load case dossier.', type: 'error' });
     } finally {
       setLoadingDetail(false);
     }
@@ -73,6 +73,12 @@ const CaseReviews = ({ initialCaseId, onBack }) => {
   useEffect(() => {
     loadReviewCases();
   }, []);
+
+  useEffect(() => {
+    if (initialCaseId) {
+      setSelectedCaseId(initialCaseId);
+    }
+  }, [initialCaseId]);
 
   useEffect(() => {
     if (selectedCaseId) {

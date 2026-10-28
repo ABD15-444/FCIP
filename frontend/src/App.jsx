@@ -332,7 +332,7 @@ const MainLayout = () => {
             <ComplianceRiskOversight onNavigate={handleNavigateCompliance} />
           )}
           {isCompliance && currentPage === 'compliance_reports' && <ComplianceReports />}
-          {isCompliance && currentPage === 'audit' && <AuditLogs />}
+          {isCompliance && (currentPage === 'audit' || currentPage === 'compliance_audit') && <AuditLogs />}
 
           {/* Investigator Views */}
           {!isAdmin && !isCompliance && currentPage === 'dashboard' && <DashboardOverview onNavigate={setCurrentPage} />}

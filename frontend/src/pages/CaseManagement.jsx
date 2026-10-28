@@ -394,9 +394,10 @@ const CaseManagement = ({ prefillAlert, onCaseCreated }) => {
                             notes: 'Submitted from Investigator Case Dossier view.',
                           });
                           alert('Case successfully submitted for formal Compliance Review!');
-                          loadCaseDetails(caseDetail.id);
+                          handleOpenDetail(caseDetail.id);
+                          loadCases();
                         } catch (err) {
-                          alert(err.response?.data?.error || 'Failed to submit case for compliance review.');
+                          alert(err.response?.data?.message || err.response?.data?.error || 'Failed to submit case for compliance review.');
                         }
                       }
                     }}

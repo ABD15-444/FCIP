@@ -398,10 +398,37 @@ router.get('/reports', authenticateToken, authorizeRoles('compliance_officer', '
     query += ' ORDER BY r.created_at DESC';
     const result = await db.query(query, params);
 
+    const synthesizedReports = result.rows.map(r => {
+      let narrative = r.report_data?.summary || null;
+      if (!narrative && r.report_data) {
+        const d = r.report_data;
+        const c = d.case || {};
+        const a = d.alert || {};
+        const t = d.transaction || {};
+        const rs = d.riskScore || {};
+        const notes = (d.notes || []).map(n => '  • ' + n.note_text).join('\n');
+        
+        const sections = [];
+        sections.push('FINANCIAL CRIME INTELLIGENCE PLATFORM — SAR INVESTIGATION DOSSIER');
+        sections.push('SUBJECT CASE: ' + (c.title || r.title || 'Official Case Record') + ' [Status: ' + (c.status || 'Active') + ', Priority: ' + (c.priority || 'High') + ']');
+        if (c.description) sections.push('EXECUTIVE SUMMARY & FINDINGS:\n' + c.description);
+        if (a.alert_type) sections.push('CORROBORATING ALERT:\n' + a.alert_type + ' [Severity: ' + (a.severity || 'High') + '] — ' + (a.description || 'Threshold rule exceeded'));
+        if (t.amount) sections.push('PRIMARY TRANSACTION:\nAmount: ' + (t.currency || 'USD') + ' ' + Number(t.amount).toLocaleString() + ' | Channel: ' + (t.channel || 'wire') + ' | Date: ' + (t.transaction_date || 'N/A'));
+        if (rs.score) sections.push('COMPLIANCE RISK INDEX:\nComposite Score: ' + rs.score + '/100 (' + (rs.risk_level || 'High') + ')');
+        if (notes) sections.push('INVESTIGATIVE INTELLIGENCE NOTES:\n' + notes);
+        narrative = sections.join('\n\n');
+      }
+      return {
+        ...r,
+        summary: narrative || 'Dossier compiled with linked transaction evidence, alert timeline, and audit verification.',
+        content: narrative || 'Dossier compiled with linked transaction evidence, alert timeline, and audit verification.'
+      };
+    });
+
     res.status(200).json({
       success: true,
-      count: result.rows.length,
-      reports: result.rows,
+      count: synthesizedReports.length,
+      reports: synthesizedReports,
     });
   } catch (error) {
     console.error('Compliance reports fetch error:', error);
@@ -516,11 +543,27 @@ router.get('/risk-oversight', authenticateToken, authorizeRoles('compliance_offi
       ORDER BY triggered_alerts_count DESC
     `);
 
+    const mappedRules = rulesSummary.rows.map(r => ({
+      id: r.id,
+      name: r.rule_name,
+      rule_name: r.rule_name,
+      rule_code: r.rule_type || ('RULE-00' + r.id),
+      severity: r.risk_level || 'medium',
+      risk_level: r.risk_level || 'medium',
+      is_active: r.status === 'active' || r.is_active === true,
+      status: r.status,
+      alert_count: parseInt(r.triggered_alerts_count, 10) || 0,
+      triggered_alerts_count: parseInt(r.triggered_alerts_count, 10) || 0,
+      description: r.description || ('Automated AML heuristic condition: ' + r.condition_type + ' (Threshold: ' + r.threshold_value + ')')
+    }));
+
     res.status(200).json({
       success: true,
       highRiskCases: highRiskCases.rows,
       documentationWarnings: documentationWarnings.rows,
+      documentationIssues: documentationWarnings.rows,
       rulesSummary: rulesSummary.rows,
+      rules: mappedRules,
     });
   } catch (error) {
     console.error('Risk oversight error:', error);
