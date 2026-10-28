@@ -40,6 +40,15 @@ const ComplianceReports = () => {
   const cards = stats?.cards || {};
   const workload = stats?.workload || {};
 
+  const totalPipelineCases = Math.max(
+    1,
+    (workload.submitted || 0) +
+      (workload.under_review || 0) +
+      (workload.returned || 0) +
+      (workload.accepted || 0) +
+      (workload.escalated || 0)
+  );
+
   const totalReviewsDecided =
     (cards.reports_approved || 0) + (cards.reports_returned || 0) + (cards.reports_awaiting_review || 0);
 
@@ -217,7 +226,10 @@ const ComplianceReports = () => {
                 <span className="font-mono font-bold text-white">{workload.submitted || 0}</span>
               </div>
               <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-amber-400" style={{ width: '60%' }} />
+                <div
+                  className="h-full bg-amber-400"
+                  style={{ width: `${Math.min(100, ((workload.submitted || 0) / totalPipelineCases) * 100)}%` }}
+                />
               </div>
             </div>
 
@@ -227,7 +239,10 @@ const ComplianceReports = () => {
                 <span className="font-mono font-bold text-white">{workload.under_review || 0}</span>
               </div>
               <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-cyan-400" style={{ width: '45%' }} />
+                <div
+                  className="h-full bg-cyan-400"
+                  style={{ width: `${Math.min(100, ((workload.under_review || 0) / totalPipelineCases) * 100)}%` }}
+                />
               </div>
             </div>
 
@@ -237,7 +252,10 @@ const ComplianceReports = () => {
                 <span className="font-mono font-bold text-white">{workload.accepted || 0}</span>
               </div>
               <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-400" style={{ width: '75%' }} />
+                <div
+                  className="h-full bg-emerald-400"
+                  style={{ width: `${Math.min(100, ((workload.accepted || 0) / totalPipelineCases) * 100)}%` }}
+                />
               </div>
             </div>
           </div>

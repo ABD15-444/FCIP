@@ -17,11 +17,16 @@ router.get('/', authenticateToken, async (req, res) => {
         u.last_name as assignee_last_name,
         cb.first_name as creator_first_name,
         cb.last_name as creator_last_name,
+        sub.first_name as submitter_first_name,
+        sub.last_name as submitter_last_name,
+        COALESCE(sub.first_name || ' ' || sub.last_name, u.first_name || ' ' || u.last_name, cb.first_name || ' ' || cb.last_name, 'Assigned Agent') as investigator_name,
+        CASE WHEN c.alert_id IS NOT NULL THEN 1 ELSE 0 END as alert_count,
         COUNT(cn.id) as note_count
       FROM cases c
       LEFT JOIN alerts a ON c.alert_id = a.id
       LEFT JOIN users u ON c.assigned_to = u.id
       LEFT JOIN users cb ON c.created_by = cb.id
+      LEFT JOIN users sub ON c.submitted_by = sub.id
       LEFT JOIN case_notes cn ON cn.case_id = c.id
       WHERE 1=1
     `;
@@ -43,7 +48,7 @@ router.get('/', authenticateToken, async (req, res) => {
       query += ` AND (c.title ILIKE $${pIdx} OR c.description ILIKE $${pIdx})`;
     }
 
-    query += ` GROUP BY c.id, a.id, u.id, cb.id ORDER BY c.created_at DESC`;
+    query += ` GROUP BY c.id, a.id, u.id, cb.id, sub.id ORDER BY c.created_at DESC`;
     const result = await db.query(query, params);
 
     res.status(200).json({ success: true, count: result.rows.length, cases: result.rows });
@@ -127,6 +132,9 @@ router.post('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const caseId = parseInt(req.params.id, 10);
+    if (isNaN(caseId)) {
+      return res.status(400).json({ success: false, message: 'Invalid case ID.' });
+    }
     const caseRes = await db.query(
       `
       SELECT
@@ -144,7 +152,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
         u.first_name as assignee_first_name,
         u.last_name as assignee_last_name,
         cb.first_name as creator_first_name,
-        cb.last_name as creator_last_name
+        cb.last_name as creator_last_name,
+        sub.first_name as submitter_first_name,
+        sub.last_name as submitter_last_name,
+        COALESCE(sub.first_name || ' ' || sub.last_name, u.first_name || ' ' || u.last_name, cb.first_name || ' ' || cb.last_name, 'Assigned Agent') as investigator_name,
+        CASE WHEN c.alert_id IS NOT NULL THEN 1 ELSE 0 END as alert_count
       FROM cases c
       LEFT JOIN alerts a ON c.alert_id = a.id
       LEFT JOIN transactions t ON a.transaction_id = t.id
@@ -152,6 +164,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       LEFT JOIN accounts ta ON t.to_account_id = ta.id
       LEFT JOIN users u ON c.assigned_to = u.id
       LEFT JOIN users cb ON c.created_by = cb.id
+      LEFT JOIN users sub ON c.submitted_by = sub.id
       WHERE c.id = $1
     `,
       [caseId]

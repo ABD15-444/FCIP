@@ -275,9 +275,9 @@ const MainLayout = () => {
           <div className="flex items-center gap-4">
             {/* Bell Icon with unread badge */}
             <button
-              onClick={() => setCurrentPage(isAdmin ? 'audit' : 'alerts')}
+              onClick={() => setCurrentPage(isAdmin ? 'audit' : isCompliance ? 'compliance_queue' : 'alerts')}
               className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-colors"
-              title={isAdmin ? 'Audit Events' : 'Alerts'}
+              title={isAdmin ? 'Audit Events' : isCompliance ? 'Compliance Review Queue' : 'Alerts'}
             >
               <Bell className="w-4 h-4" />
               {unreadAlerts > 0 && !isAdmin && (
@@ -340,7 +340,13 @@ const MainLayout = () => {
           {isCompliance && currentPage === 'compliance_queue' && (
             <ErrorBoundary moduleName="Review Queue" onFallback={() => setCurrentPage('compliance_dashboard')}>
               <ReviewQueue
-                onSelectCase={(item) => handleNavigateCompliance('compliance_cases', { caseId: item.id })}
+                onSelectCase={(item) => {
+                  if (item?.item_type === 'report') {
+                    handleNavigateCompliance('compliance_sars', { reportId: item.id });
+                  } else {
+                    handleNavigateCompliance('compliance_cases', { caseId: item.id });
+                  }
+                }}
               />
             </ErrorBoundary>
           )}

@@ -7,9 +7,14 @@ const { logAudit } = require('../middleware/audit');
 // GET /api/compliance/stats - Summary metrics for Compliance Dashboard
 router.get('/stats', authenticateToken, authorizeRoles('compliance_officer', 'admin'), async (req, res) => {
   try {
-    const { fromDate, toDate } = req.query;
+    const { fromDate, toDate, timeRange } = req.query;
     let dateFilter = '';
     const params = [];
+    if (timeRange === '7d') {
+      dateFilter += ` AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`;
+    } else if (timeRange === '30d') {
+      dateFilter += ` AND created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`;
+    }
     if (fromDate) {
       params.push(fromDate);
       dateFilter += ` AND created_at >= $${params.length}`;
@@ -21,22 +26,26 @@ router.get('/stats', authenticateToken, authorizeRoles('compliance_officer', 'ad
 
     // 1. Cases awaiting review (submitted_for_review + under_compliance_review)
     const awaitingCaseReviews = await db.query(
-      `SELECT COUNT(*) FROM cases WHERE status IN ('submitted_for_review', 'under_compliance_review') ${dateFilter}`
+      `SELECT COUNT(*) FROM cases WHERE status IN ('submitted_for_review', 'under_compliance_review') ${dateFilter}`,
+      params
     );
 
     // 2. Reports awaiting review / approval (pending_approval or draft attached to submitted cases)
     const awaitingReports = await db.query(
-      `SELECT COUNT(*) FROM reports WHERE review_status IN ('pending_approval', 'draft') ${dateFilter}`
+      `SELECT COUNT(*) FROM reports WHERE review_status IN ('pending_approval', 'draft') ${dateFilter}`,
+      params
     );
 
     // 3. Reports approved internally
     const approvedReports = await db.query(
-      `SELECT COUNT(*) FROM reports WHERE review_status = 'approved' ${dateFilter}`
+      `SELECT COUNT(*) FROM reports WHERE review_status = 'approved' ${dateFilter}`,
+      params
     );
 
     // 4. Reports / cases returned for correction
     const returnedItems = await db.query(
-      `SELECT COUNT(*) FROM cases WHERE status = 'returned_for_correction' ${dateFilter}`
+      `SELECT COUNT(*) FROM cases WHERE status = 'returned_for_correction' ${dateFilter}`,
+      params
     );
 
     // 5. Overdue reviews (deadline passed & not closed/approved)
@@ -44,18 +53,23 @@ router.get('/stats', authenticateToken, authorizeRoles('compliance_officer', 'ad
       `SELECT COUNT(*) FROM cases 
        WHERE review_deadline IS NOT NULL 
          AND review_deadline < CURRENT_TIMESTAMP 
-         AND status NOT IN ('compliance_accepted', 'closed') ${dateFilter}`
+         AND status NOT IN ('compliance_accepted', 'closed') ${dateFilter}`,
+      params
     );
 
     // 6. Cases escalated for compliance attention
     const escalatedCases = await db.query(
-      `SELECT COUNT(*) FROM cases WHERE status = 'escalated' ${dateFilter}`
+      `SELECT COUNT(*) FROM cases WHERE status = 'escalated' ${dateFilter}`,
+      params
     );
 
     // 7. Recent compliance review activities
     const recentActivity = await db.query(`
       SELECT 
         cr.*, 
+        cr.decision_notes as comments,
+        u.first_name as first_name, 
+        u.last_name as last_name,
         u.first_name as reviewer_first_name, 
         u.last_name as reviewer_last_name, 
         u.role as reviewer_role,
@@ -68,12 +82,13 @@ router.get('/stats', authenticateToken, authorizeRoles('compliance_officer', 'ad
     `);
 
     // 8. Workload distribution across compliance statuses
-    const workloadDist = await db.query(`
-      SELECT status, COUNT(*) as count
-      FROM cases
-      WHERE status IN ('submitted_for_review', 'under_compliance_review', 'returned_for_correction', 'compliance_accepted', 'escalated')
-      GROUP BY status
-    `);
+    const workloadDist = await db.query(
+      `SELECT status, COUNT(*) as count
+       FROM cases
+       WHERE status IN ('submitted_for_review', 'under_compliance_review', 'returned_for_correction', 'compliance_accepted', 'escalated') ${dateFilter}
+       GROUP BY status`,
+      params
+    );
 
     const distribution = {
       submitted_for_review: 0,
@@ -140,81 +155,142 @@ router.get('/stats', authenticateToken, authorizeRoles('compliance_officer', 'ad
   }
 });
 
-// GET /api/compliance/queue - Review Queue of cases submitted for review
+// GET /api/compliance/queue - Review Queue of cases and SAR reports submitted for review
 router.get('/queue', authenticateToken, authorizeRoles('compliance_officer', 'admin'), async (req, res) => {
   try {
-    const { status, priority, search, limit = 25, offset = 0 } = req.query;
+    const { status, priority, type = 'all', sortBy = 'deadline', search, page = 1, limit = 25, offset } = req.query;
+    const limitNum = parseInt(limit, 10) || 25;
+    const offsetNum = offset !== undefined ? parseInt(offset, 10) : (Math.max(1, parseInt(page, 10) || 1) - 1) * limitNum;
 
-    let baseQuery = `
-      FROM cases c
-      LEFT JOIN users sub ON c.submitted_by = sub.id
-      LEFT JOIN users ass ON c.assigned_to = ass.id
-      LEFT JOIN alerts a ON c.alert_id = a.id
-      LEFT JOIN transactions t ON a.transaction_id = t.id
-      LEFT JOIN risk_scores rs ON rs.entity_type = 'transaction' AND rs.entity_id = t.id
-      WHERE (c.status IN ('submitted_for_review', 'under_compliance_review', 'returned_for_correction', 'compliance_accepted', 'escalated') OR c.submitted_at IS NOT NULL)
-    `;
-    const params = [];
+    let items = [];
 
-    if (status && status !== 'all') {
-      params.push(status);
-      baseQuery += ` AND c.status = $${params.length}`;
+    if (type !== 'reports') {
+      let baseCaseQuery = `
+        FROM cases c
+        LEFT JOIN users sub ON c.submitted_by = sub.id
+        LEFT JOIN users ass ON c.assigned_to = ass.id
+        LEFT JOIN users cb ON c.created_by = cb.id
+        LEFT JOIN alerts a ON c.alert_id = a.id
+        LEFT JOIN transactions t ON a.transaction_id = t.id
+        LEFT JOIN risk_scores rs ON rs.entity_type = 'transaction' AND rs.entity_id = t.id
+        WHERE (c.status IN ('submitted_for_review', 'under_compliance_review', 'returned_for_correction', 'compliance_accepted', 'escalated') OR c.submitted_at IS NOT NULL)
+      `;
+      const caseParams = [];
+
+      if (status && status !== 'all') {
+        caseParams.push(status);
+        baseCaseQuery += ` AND c.status = $${caseParams.length}`;
+      }
+
+      if (priority && priority !== 'all') {
+        caseParams.push(priority);
+        baseCaseQuery += ` AND c.priority = $${caseParams.length}`;
+      }
+
+      if (search) {
+        caseParams.push(`%${search.trim()}%`);
+        const pIdx = caseParams.length;
+        baseCaseQuery += ` AND (c.title ILIKE $${pIdx} OR c.description ILIKE $${pIdx} OR sub.first_name ILIKE $${pIdx} OR sub.last_name ILIKE $${pIdx} OR CAST(c.id AS TEXT) ILIKE $${pIdx})`;
+      }
+
+      const selectCaseQuery = `
+        SELECT
+          c.*,
+          'case' as item_type,
+          sub.first_name as submitter_first_name,
+          sub.last_name as submitter_last_name,
+          sub.email as submitter_email,
+          ass.first_name as assignee_first_name,
+          ass.last_name as assignee_last_name,
+          COALESCE(sub.first_name || ' ' || sub.last_name, ass.first_name || ' ' || ass.last_name, cb.first_name || ' ' || cb.last_name, 'Assigned Agent') as investigator_name,
+          CASE WHEN c.alert_id IS NOT NULL THEN 1 ELSE 0 END as alert_count,
+          a.severity as alert_severity,
+          a.alert_type,
+          t.amount as transaction_amount,
+          t.currency as transaction_currency,
+          rs.score as risk_score,
+          rs.risk_level,
+          (SELECT COUNT(*) FROM case_notes cn WHERE cn.case_id = c.id) as note_count,
+          (SELECT COUNT(*) FROM reports rep WHERE rep.case_id = c.id) as report_count
+        ${baseCaseQuery}
+      `;
+      const caseRes = await db.query(selectCaseQuery, caseParams);
+      items.push(...caseRes.rows);
     }
 
-    if (priority && priority !== 'all') {
-      params.push(priority);
-      baseQuery += ` AND c.priority = $${params.length}`;
+    if (type === 'reports') {
+      let baseRepQuery = `
+        FROM reports r
+        LEFT JOIN cases c ON r.case_id = c.id
+        LEFT JOIN users u ON r.generated_by = u.id
+        WHERE 1=1
+      `;
+      const repParams = [];
+      if (status && status !== 'all') {
+        repParams.push(status);
+        baseRepQuery += ` AND r.review_status = $${repParams.length}`;
+      }
+      if (priority && priority !== 'all') {
+        repParams.push(priority);
+        baseRepQuery += ` AND c.priority = $${repParams.length}`;
+      }
+      if (search) {
+        repParams.push(`%${search.trim()}%`);
+        const pIdx = repParams.length;
+        baseRepQuery += ` AND (r.title ILIKE $${pIdx} OR c.title ILIKE $${pIdx} OR u.first_name ILIKE $${pIdx} OR u.last_name ILIKE $${pIdx} OR CAST(r.id AS TEXT) ILIKE $${pIdx})`;
+      }
+      const selectRepQuery = `
+        SELECT
+          r.id,
+          r.case_id,
+          r.title,
+          COALESCE(r.review_status, 'draft') as status,
+          COALESCE(c.priority, 'high') as priority,
+          'report' as item_type,
+          u.first_name as submitter_first_name,
+          u.last_name as submitter_last_name,
+          COALESCE(u.first_name || ' ' || u.last_name, 'System Operator') as investigator_name,
+          CASE WHEN c.alert_id IS NOT NULL THEN 1 ELSE 0 END as alert_count,
+          r.created_at as submitted_at,
+          c.review_deadline
+        ${baseRepQuery}
+      `;
+      const repRes = await db.query(selectRepQuery, repParams);
+      items.push(...repRes.rows);
     }
 
-    if (search) {
-      params.push(`%${search.trim()}%`);
-      const pIdx = params.length;
-      baseQuery += ` AND (c.title ILIKE $${pIdx} OR c.description ILIKE $${pIdx} OR sub.first_name ILIKE $${pIdx} OR sub.last_name ILIKE $${pIdx})`;
-    }
+    // Apply sortBy ('deadline', 'submission', 'priority')
+    const priorityRank = { critical: 1, high: 2, medium: 3, low: 4 };
+    items.sort((a, b) => {
+      if (sortBy === 'priority') {
+        const pa = priorityRank[a.priority] || 5;
+        const pb = priorityRank[b.priority] || 5;
+        if (pa !== pb) return pa - pb;
+      } else if (sortBy === 'submission') {
+        const da = new Date(a.submitted_at || a.created_at || 0).getTime();
+        const dbTime = new Date(b.submitted_at || b.created_at || 0).getTime();
+        if (dbTime !== da) return dbTime - da;
+      } else {
+        // Default: deadline ascending (nulls last), then status rank
+        const dla = a.review_deadline ? new Date(a.review_deadline).getTime() : Infinity;
+        const dlb = b.review_deadline ? new Date(b.review_deadline).getTime() : Infinity;
+        if (dla !== dlb) return dla - dlb;
+      }
+      const statusRank = { submitted_for_review: 1, under_compliance_review: 2, escalated: 3, returned_for_correction: 4 };
+      return (statusRank[a.status] || 5) - (statusRank[b.status] || 5);
+    });
 
-    const countRes = await db.query(`SELECT COUNT(c.id) as total ${baseQuery}`, params);
-    const total = parseInt(countRes.rows[0].total, 10);
-
-    const selectQuery = `
-      SELECT
-        c.*,
-        sub.first_name as submitter_first_name,
-        sub.last_name as submitter_last_name,
-        sub.email as submitter_email,
-        ass.first_name as assignee_first_name,
-        ass.last_name as assignee_last_name,
-        a.severity as alert_severity,
-        a.alert_type,
-        t.amount as transaction_amount,
-        t.currency as transaction_currency,
-        rs.score as risk_score,
-        rs.risk_level,
-        (SELECT COUNT(*) FROM case_notes cn WHERE cn.case_id = c.id) as note_count,
-        (SELECT COUNT(*) FROM reports rep WHERE rep.case_id = c.id) as report_count
-      ${baseQuery}
-      ORDER BY 
-        CASE 
-          WHEN c.status = 'submitted_for_review' THEN 1
-          WHEN c.status = 'under_compliance_review' THEN 2
-          WHEN c.status = 'escalated' THEN 3
-          WHEN c.status = 'returned_for_correction' THEN 4
-          ELSE 5
-        END,
-        COALESCE(c.submitted_at, c.created_at) DESC
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `;
-    params.push(parseInt(limit, 10), parseInt(offset, 10));
-
-    const result = await db.query(selectQuery, params);
+    const total = items.length;
+    const paginated = items.slice(offsetNum, offsetNum + limitNum);
 
     res.status(200).json({
       success: true,
       total,
-      count: result.rows.length,
-      limit: parseInt(limit, 10),
-      offset: parseInt(offset, 10),
-      items: result.rows,
-      queue: result.rows,
+      count: paginated.length,
+      limit: limitNum,
+      offset: offsetNum,
+      items: paginated,
+      queue: paginated,
     });
   } catch (error) {
     console.error('Review queue error:', error);
@@ -288,7 +364,8 @@ router.post('/cases/:id/submit', authenticateToken, async (req, res) => {
 router.post('/cases/:id/decision', authenticateToken, authorizeRoles('compliance_officer', 'admin'), async (req, res) => {
   try {
     const caseId = parseInt(req.params.id, 10);
-    const { action, comments, reason } = req.body;
+    const { action, comments, reason, return_reason } = req.body;
+    const effectiveReason = return_reason || reason;
     // Allowed actions: 'START_REVIEW', 'ACCEPT_CASE', 'RETURN_FOR_CORRECTION', 'ESCALATE'
 
     const caseRes = await db.query('SELECT * FROM cases WHERE id = $1', [caseId]);
@@ -308,10 +385,10 @@ router.post('/cases/:id/decision', authenticateToken, authorizeRoles('compliance
       actionDesc = comments || 'Dossier findings validated and accepted for formal regulatory filing.';
     } else if (action === 'RETURN_FOR_CORRECTION') {
       newStatus = 'returned_for_correction';
-      if (!comments && !reason) {
+      if (!comments && !effectiveReason) {
         return res.status(400).json({ success: false, message: 'A return reason or correction comment is required.' });
       }
-      actionDesc = `Returned for correction: ${reason || comments}`;
+      actionDesc = `Returned for correction: ${effectiveReason || comments}`;
     } else if (action === 'ESCALATE') {
       newStatus = 'escalated';
       actionDesc = `Escalated for senior compliance panel review: ${comments || 'High complexity'}`;
@@ -327,7 +404,7 @@ router.post('/cases/:id/decision', authenticateToken, authorizeRoles('compliance
        WHERE id = $4 RETURNING *`,
       [
         newStatus,
-        action === 'RETURN_FOR_CORRECTION' ? reason || comments : current.return_reason,
+        action === 'RETURN_FOR_CORRECTION' ? effectiveReason || comments : current.return_reason,
         comments || current.compliance_notes,
         caseId,
       ]
@@ -372,7 +449,7 @@ router.post('/cases/:id/decision', authenticateToken, authorizeRoles('compliance
 // GET /api/compliance/reports - List dossiers with review status for SAR review
 router.get('/reports', authenticateToken, authorizeRoles('compliance_officer', 'admin'), async (req, res) => {
   try {
-    const { review_status } = req.query;
+    const statusFilter = req.query.review_status || req.query.status;
     let query = `
       SELECT 
         r.*,
@@ -381,8 +458,10 @@ router.get('/reports', authenticateToken, authorizeRoles('compliance_officer', '
         c.status as case_status,
         u.first_name as generator_first_name,
         u.last_name as generator_last_name,
+        COALESCE(u.first_name || ' ' || u.last_name, 'System Operator') as author_name,
         rev.first_name as reviewer_first_name,
-        rev.last_name as reviewer_last_name
+        rev.last_name as reviewer_last_name,
+        CASE WHEN rev.id IS NOT NULL THEN rev.first_name || ' ' || rev.last_name ELSE NULL END as reviewed_by_name
       FROM reports r
       LEFT JOIN cases c ON r.case_id = c.id
       LEFT JOIN users u ON r.generated_by = u.id
@@ -390,8 +469,8 @@ router.get('/reports', authenticateToken, authorizeRoles('compliance_officer', '
       WHERE 1=1
     `;
     const params = [];
-    if (review_status && review_status !== 'all') {
-      params.push(review_status);
+    if (statusFilter && statusFilter !== 'all') {
+      params.push(statusFilter);
       query += ` AND r.review_status = $${params.length}`;
     }
 
@@ -512,25 +591,31 @@ router.get('/risk-oversight', authenticateToken, authorizeRoles('compliance_offi
         rs.score as risk_score, 
         rs.risk_level,
         u.first_name as investigator_first_name,
-        u.last_name as investigator_last_name
+        u.last_name as investigator_last_name,
+        COALESCE(u.first_name || ' ' || u.last_name, cb.first_name || ' ' || cb.last_name, 'Assigned Agent') as investigator_name,
+        CASE WHEN c.alert_id IS NOT NULL THEN 1 ELSE 0 END as alert_count
       FROM cases c
       LEFT JOIN alerts a ON c.alert_id = a.id
       LEFT JOIN transactions t ON a.transaction_id = t.id
       LEFT JOIN risk_scores rs ON rs.entity_type = 'transaction' AND rs.entity_id = t.id
       LEFT JOIN users u ON c.assigned_to = u.id
-      WHERE (rs.score >= 70 OR c.priority = 'high')
+      LEFT JOIN users cb ON c.created_by = cb.id
+      WHERE (rs.score >= 70 OR c.priority IN ('high', 'critical'))
       ORDER BY rs.score DESC NULLS LAST
       LIMIT 20
     `);
 
     // Incomplete documentation cases (no notes or empty description)
     const documentationWarnings = await db.query(`
-      SELECT c.*, COUNT(cn.id) as note_count
+      SELECT c.*, COUNT(cn.id) as note_count,
+        COALESCE(u.first_name || ' ' || u.last_name, cb.first_name || ' ' || cb.last_name, 'Assigned Agent') as investigator_name
       FROM cases c
       LEFT JOIN case_notes cn ON cn.case_id = c.id
-      WHERE (c.description IS NULL OR LENGTH(c.description) < 20)
-      GROUP BY c.id
-      HAVING COUNT(cn.id) = 0
+      LEFT JOIN users u ON c.assigned_to = u.id
+      LEFT JOIN users cb ON c.created_by = cb.id
+      WHERE (c.description IS NULL OR LENGTH(c.description) < 20 OR c.alert_id IS NULL)
+      GROUP BY c.id, u.id, cb.id
+      HAVING COUNT(cn.id) = 0 OR c.alert_id IS NULL
       LIMIT 10
     `);
 
@@ -571,8 +656,8 @@ router.get('/risk-oversight', authenticateToken, authorizeRoles('compliance_offi
   }
 });
 
-// GET /api/compliance/audit-history - Review actions & decisions audit trail
-router.get('/audit-history', authenticateToken, authorizeRoles('compliance_officer', 'admin'), async (req, res) => {
+// GET /api/compliance/audit-history - Review actions & decisions audit trail (Administrator only)
+router.get('/audit-history', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const historyRes = await db.query(`
       SELECT 

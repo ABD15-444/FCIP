@@ -53,10 +53,19 @@ const SARDossierReview = () => {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const data = await complianceService.getReports({ status: filterStatus });
-      setReports(data.reports || []);
-      if (data.reports?.length > 0 && !selectedReport) {
-        setSelectedReport(data.reports[0]);
+      const data = await complianceService.getReports({ status: filterStatus, review_status: filterStatus });
+      const list = data.reports || [];
+      setReports(list);
+      if (list.length > 0) {
+        setSelectedReport((prev) => {
+          if (prev) {
+            const updated = list.find((r) => r.id === prev.id);
+            if (updated) return updated;
+          }
+          return list[0];
+        });
+      } else {
+        setSelectedReport(null);
       }
     } catch (err) {
       console.error(err);

@@ -640,6 +640,14 @@ async function runMasterAudit() {
     console.log(' MASTER AUTOMATED AUDIT SUITE FINISHED ');
     console.log('================================================================\n');
 
+    if (createdCaseId) {
+      await db.query('DELETE FROM compliance_reviews WHERE case_id = $1', [createdCaseId]);
+      await db.query('DELETE FROM case_history WHERE case_id = $1', [createdCaseId]);
+      await db.query('DELETE FROM case_notes WHERE case_id = $1', [createdCaseId]);
+      await db.query('DELETE FROM cases WHERE id = $1', [createdCaseId]);
+      await db.query("DELETE FROM audit_logs WHERE entity_type = 'case' AND entity_id = $1", [createdCaseId]);
+    }
+
     server.close();
     return testResults;
   } catch (err) {
