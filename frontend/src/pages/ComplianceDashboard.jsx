@@ -361,10 +361,10 @@ const ComplianceDashboard = ({ onNavigate }) => {
             Recent Compliance Activity Ledger
           </h2>
           <button
-            onClick={() => onNavigate && onNavigate('compliance_audit')}
+            onClick={() => onNavigate && onNavigate('compliance_reports')}
             className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono"
           >
-            Full Audit History <ArrowRight className="w-3 h-3" />
+            Governance Reports <ArrowRight className="w-3 h-3" />
           </button>
         </div>
 

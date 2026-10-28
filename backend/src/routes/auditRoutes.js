@@ -4,7 +4,7 @@ const db = require('../config/db');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 
 // GET /api/audit - return audit logs with parameterized filter, search, sorting and pagination (admin only)
-router.get('/', authenticateToken, authorizeRoles('admin', 'compliance_officer'), async (req, res) => {
+router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const {
       userId,
@@ -113,7 +113,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'compliance_officer')
 });
 
 // GET /api/audit/actions - distinct action list for filtering
-router.get('/actions', authenticateToken, authorizeRoles('admin', 'compliance_officer'), async (req, res) => {
+router.get('/actions', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const actRes = await db.query('SELECT DISTINCT action FROM audit_logs ORDER BY action ASC');
     res.status(200).json({ success: true, actions: actRes.rows.map((r) => r.action) });

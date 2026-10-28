@@ -27,6 +27,29 @@ const SARDossierReview = () => {
   // Prevent double-click and track download state
   const [downloadingExport, setDownloadingExport] = useState(false);
 
+  const renderNarrative = (rep) => {
+    if (!rep) return 'No report selected.';
+    if (rep.summary) return rep.summary;
+    if (rep.content) return rep.content;
+    const d = rep.report_data;
+    if (!d) return 'No text narrative embedded in this dossier export.';
+    const c = d.case || {};
+    const a = d.alert || {};
+    const t = d.transaction || {};
+    const rs = d.riskScore || {};
+    const notes = (d.notes || []).map((n) => '• ' + n.note_text).join('\n');
+
+    const parts = [];
+    parts.push('FINANCIAL CRIME INTELLIGENCE PLATFORM — SAR INVESTIGATION DOSSIER');
+    parts.push('SUBJECT CASE: ' + (c.title || rep.case_title || rep.title || 'Official AML Record') + ' [Status: ' + (c.status || 'Active') + ', Priority: ' + (c.priority || 'High') + ']');
+    if (c.description) parts.push('EXECUTIVE SUMMARY & FINDINGS:\n' + c.description);
+    if (a.alert_type) parts.push('CORROBORATING ALERT:\n' + a.alert_type + ' [Severity: ' + (a.severity || 'High') + '] — ' + (a.description || 'Threshold rule exceeded'));
+    if (t.amount) parts.push('PRIMARY TRANSACTION:\nAmount: ' + (t.currency || 'USD') + ' ' + Number(t.amount).toLocaleString() + ' | Channel: ' + (t.channel || 'wire') + ' | Date: ' + (t.transaction_date || 'N/A'));
+    if (rs.score) parts.push('COMPLIANCE RISK INDEX:\nComposite Score: ' + rs.score + '/100 (' + (rs.risk_level || 'High') + ')');
+    if (notes) parts.push('INVESTIGATIVE INTELLIGENCE NOTES:\n' + notes);
+    return parts.length > 1 ? parts.join('\n\n') : 'No text narrative embedded in this dossier export.';
+  };
+
   const fetchReports = async () => {
     try {
       setLoading(true);

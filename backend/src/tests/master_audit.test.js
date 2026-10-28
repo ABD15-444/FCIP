@@ -254,6 +254,32 @@ async function runMasterAudit() {
       `HTTP ${compRunRes.status}`
     );
 
+    // TEST 1.7: Compliance Officer BLOCKED from Security Audit History (403)
+    const compAuditRes = await makeRequest(server, {
+      path: '/api/audit',
+      method: 'GET',
+      headers: { Authorization: `Bearer ${compToken}` },
+    });
+    recordTest(
+      'RBAC',
+      'Compliance Officer blocked from Security Audit History (403)',
+      compAuditRes.status === 403 ? 'PASS' : 'FAIL',
+      `HTTP ${compAuditRes.status}`
+    );
+
+    // TEST 1.8: Investigator BLOCKED from Security Audit History (403)
+    const invAuditRes = await makeRequest(server, {
+      path: '/api/audit',
+      method: 'GET',
+      headers: { Authorization: `Bearer ${invToken}` },
+    });
+    recordTest(
+      'RBAC',
+      'Investigator blocked from Security Audit History (403)',
+      invAuditRes.status === 403 ? 'PASS' : 'FAIL',
+      `HTTP ${invAuditRes.status}`
+    );
+
     console.log('\n[Phase 3A] Administrator Role Operations');
 
     // TEST 2.1: Admin stats endpoint

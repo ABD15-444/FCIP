@@ -229,7 +229,7 @@ const ComplianceRiskOversight = ({ onNavigate }) => {
                   const ruleName = rule.name || rule.rule_name;
                   const ruleCode = rule.rule_code || ('RULE-00' + rule.id);
                   const ruleSeverity = rule.severity || rule.risk_level || 'medium';
-                  const isActive = isActive !== undefined ? isActive : (rule.status === 'active');
+                  const isActive = rule.is_active !== undefined ? rule.is_active : (rule.status === 'active');
                   const alertCount = rule.alert_count !== undefined ? rule.alert_count : (parseInt(rule.triggered_alerts_count, 10) || 0);
                   const ruleDesc = rule.description || ('Detection condition: ' + (rule.condition_type || 'standard') + ' with threshold ' + (rule.threshold_value || 'N/A'));
 

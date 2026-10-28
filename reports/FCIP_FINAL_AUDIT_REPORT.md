@@ -57,8 +57,9 @@ All identified defects across frontend and backend layers have been diagnosed, c
 | **SAR & Dossier Validation Hub** | Official filing review, version tracking, sign-offs, synthesized text narrative | **PASS** | `GET /api/compliance/reports`, `POST /api/compliance/reports/:id/decision` |
 | **Compliance Risk Oversight** | High-exposure cases, documentation QA warnings, detection rules calibration matrix | **PASS** | `GET /api/compliance/risk-oversight` returns rules matrix & exposure cases |
 | **Governance Reports** | Approval vs. return rate diagnostics, pipeline stages | **PASS** | `ComplianceReports.jsx` and telemetry endpoints |
-| **Audit History** | Review decisions, compliance activity, and full audit ledger | **PASS** | `GET /api/audit` authorized for compliance officers |
-| **Privilege Boundaries** | Block access to user creation and operational detection | **PASS** | Backend enforces `HTTP 403 Forbidden` |
+| **Audit History** | Review decisions, compliance activity, and governance analytics | **PASS** | `ComplianceReports.jsx` and compliance telemetry endpoints |
+| **Audit Ledger Isolation** | Strict Administrator-only security policy enforced on `audit_logs` | **PASS** | Compliance Officers strictly blocked from `/api/audit` (`HTTP 403 Forbidden`) |
+| **Privilege Boundaries** | Block access to user creation, audit ledger, and operational detection | **PASS** | Backend enforces `HTTP 403 Forbidden` |
 
 ---
 
@@ -72,10 +73,13 @@ All identified defects across frontend and backend layers have been diagnosed, c
 2. **Backend Role Authorization (`authorizeRoles`):**
    - Privilege checks are enforced on backend Express routes, not merely hidden in the frontend UI.
    - Direct API calls with insufficient role privileges are rejected with `HTTP 403 Forbidden`.
+   - **Audit History Access Control:** Strict Administrator-only authorization enforced on all `/api/audit` endpoints. Compliance Officers and Investigators are blocked with `HTTP 403 Forbidden`.
 3. **Data Protection in Exports:**
    - Report exports require full JWT authentication.
    - Direct unauthenticated URL access is blocked.
    - Passwords, database connection strings, and JWT secrets are redacted from audit details.
+4. **Client-Side Resilience & Error Boundaries:**
+   - React `ErrorBoundary` wrappers isolate runtime UI exceptions on a per-module basis, preventing full-screen whiteouts and blank pages while preserving secure session state.
 
 ---
 
@@ -104,6 +108,7 @@ All identified defects across frontend and backend layers have been diagnosed, c
 ### 4.4. Audit Logging System
 - **Persistence:** Immutable records stored in PostgreSQL `audit_logs` table.
 - **Coverage:** Records user logins, failed authentications, case creation, compliance reviews, rule calibrations, and dataset imports.
+- **Access Control:** Strictly restricted to Administrator (`admin`) role. Compliance Officers and Investigators cannot query or view security audit logs.
 - **Immutability:** No deletion or modification routes exist (`HTTP 404`).
 
 ---
@@ -121,8 +126,11 @@ All identified defects across frontend and backend layers have been diagnosed, c
 | **DEF-07** | High | Case Submission | `CaseManagement.jsx` called undefined `loadCaseDetails(caseDetail.id)`, throwing `ReferenceError` caught and alerted as "Failed to submit case for compliance review" | Corrected call to `handleOpenDetail(caseDetail.id)` and `loadCases()` | Case submission successfully transitions case to `submitted_for_review` |
 | **DEF-08** | Medium | Risk Oversight Matrix | Backend returned `documentationWarnings` and `rulesSummary`, while frontend expected `documentationIssues` and `rules`, causing "0 documentation warnings" and empty rules matrix | Backend returns both keys and mapped `rules` object with telemetry fields; frontend adds fallback parsing | `GET /api/compliance/risk-oversight` returns 4 calibrated rules & exposure cases |
 | **DEF-09** | Medium | SAR Dossier Review | Report table stored JSONB without top-level `summary` or `content`, displaying "No text narrative embedded in this dossier export." | Synthesized narrative in `GET /api/compliance/reports` and added fallback narrative generator in `SARDossierReview.jsx` | Dossier view renders full executive narrative and case synthesis |
-| **DEF-10** | Medium | Audit History RBAC | `GET /api/audit` only allowed `'admin'`, causing 403 Forbidden for Compliance Officers viewing the Audit History ledger | Updated `auditRoutes.js` to `authorizeRoles('admin', 'compliance_officer')` and added route handling for `compliance_audit` in `App.jsx` | Compliance Officers successfully view full audit ledger |
-| **DEF-11** | Low | Network Graph Default | `GET /api/network/graph` without `:accountId` returned 404 | Added global graph route in `networkRoutes.js` returning topology across recent transactions | `GET /api/network/graph` returns 16 nodes and 16 links |
+| **DEF-10** | High | Security Audit RBAC | Strict enterprise policy requires Audit History to be Administrator-only. Compliance Officers must not access raw audit logs | Enforced `authorizeRoles('admin')` on `/api/audit`, removed Audit History from Compliance navigation, added client-side access-denied route guard, and added automated RBAC tests | `master_audit.test.js` confirms HTTP 403 for Compliance Officers and Investigators |
+| **DEF-11** | High | SAR Review Blank Screen | `renderNarrative(selectedReport)` called at line 275 of `SARDossierReview.jsx`, but function was undefined in component scope, throwing runtime `ReferenceError` that unmounted the React view | Defined `renderNarrative` helper synthesizing executive dossier narrative from report and case data | `npm run build:frontend` clean build; page renders dossier roster & details |
+| **DEF-12** | High | Risk Oversight Blank Screen | Line 232 of `ComplianceRiskOversight.jsx` evaluated `const isActive = isActive !== undefined ? isActive : ...`, causing Temporal Dead Zone (TDZ) `ReferenceError: Cannot access 'isActive' before initialization` | Changed self-referential check to `rule.is_active !== undefined ? rule.is_active : (rule.status === 'active')` | Page renders telemetry metrics, high-risk cases, and rule calibration matrix |
+| **DEF-13** | Medium | React Unhandled Exceptions | Uncaught component render exceptions caused full application whiteout/blank screen | Created reusable `ErrorBoundary` component with dark theme styling, error diagnostic display, and module retry action | All Compliance and Admin views wrapped in Error Boundaries |
+| **DEF-14** | Low | Network Graph Default | `GET /api/network/graph` without `:accountId` returned 404 | Added global graph route in `networkRoutes.js` returning topology across recent transactions | `GET /api/network/graph` returns 16 nodes and 16 links |
 
 ---
 

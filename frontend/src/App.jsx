@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import { alertService, dashboardService } from './services/api';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -115,7 +116,6 @@ const MainLayout = () => {
     { id: 'compliance_sars', label: 'SAR & Dossier Review', icon: FileCheck2, subtitle: 'Validation Hub' },
     { id: 'compliance_oversight', label: 'Compliance Risk Oversight', icon: ShieldAlert, subtitle: 'QA & Efficacy' },
     { id: 'compliance_reports', label: 'Compliance Reports', icon: PieChart, subtitle: 'Regulatory Analytics' },
-    { id: 'audit', label: 'Audit History', icon: ClipboardList, subtitle: 'Immutable Ledger' },
   ];
 
   // Dedicated Administrator Navigation
@@ -312,27 +312,61 @@ const MainLayout = () => {
           {isAdmin && currentPage === 'admin_health' && <SystemHealth />}
           {isAdmin && currentPage === 'audit' && <AuditLogs />}
 
+          {/* Access Denied Guard for Non-Admin trying to access audit */}
+          {!isAdmin && (currentPage === 'audit' || currentPage === 'compliance_audit') && (
+            <div className="p-8 rounded-2xl bg-red-500/10 border border-red-500/30 text-center max-w-xl mx-auto my-12 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-400 mx-auto flex items-center justify-center">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <h2 className="text-lg font-bold text-white font-mono">Access Denied: Administrator Privilege Required</h2>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Security Policy Enforcement: The Security & Audit Trail Ledger contains sensitive platform infrastructure events and is strictly restricted to users with the Administrator role. Your current role is <strong className="text-cyan-400 font-mono">{user?.role}</strong>.
+              </p>
+              <button
+                onClick={() => setCurrentPage(isCompliance ? 'compliance_dashboard' : 'dashboard')}
+                className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono hover:bg-slate-800 transition-all inline-flex items-center gap-2"
+              >
+                Return to Authorized Workspace
+              </button>
+            </div>
+          )}
+
           {/* Compliance Officer Views */}
           {isCompliance && currentPage === 'compliance_dashboard' && (
-            <ComplianceDashboard onNavigate={handleNavigateCompliance} />
+            <ErrorBoundary moduleName="Compliance Dashboard" onFallback={() => setCurrentPage('compliance_dashboard')}>
+              <ComplianceDashboard onNavigate={handleNavigateCompliance} />
+            </ErrorBoundary>
           )}
           {isCompliance && currentPage === 'compliance_queue' && (
-            <ReviewQueue
-              onSelectCase={(item) => handleNavigateCompliance('compliance_cases', { caseId: item.id })}
-            />
+            <ErrorBoundary moduleName="Review Queue" onFallback={() => setCurrentPage('compliance_dashboard')}>
+              <ReviewQueue
+                onSelectCase={(item) => handleNavigateCompliance('compliance_cases', { caseId: item.id })}
+              />
+            </ErrorBoundary>
           )}
           {isCompliance && currentPage === 'compliance_cases' && (
-            <CaseReviews
-              initialCaseId={selectedCaseParam}
-              onBack={() => setCurrentPage('compliance_queue')}
-            />
+            <ErrorBoundary moduleName="Case Reviews & Adjudication" onFallback={() => setCurrentPage('compliance_queue')}>
+              <CaseReviews
+                initialCaseId={selectedCaseParam}
+                onBack={() => setCurrentPage('compliance_queue')}
+              />
+            </ErrorBoundary>
           )}
-          {isCompliance && currentPage === 'compliance_sars' && <SARDossierReview />}
+          {isCompliance && currentPage === 'compliance_sars' && (
+            <ErrorBoundary moduleName="SAR & Dossier Validation Hub" onFallback={() => setCurrentPage('compliance_dashboard')}>
+              <SARDossierReview />
+            </ErrorBoundary>
+          )}
           {isCompliance && currentPage === 'compliance_oversight' && (
-            <ComplianceRiskOversight onNavigate={handleNavigateCompliance} />
+            <ErrorBoundary moduleName="Compliance Risk Oversight & QA" onFallback={() => setCurrentPage('compliance_dashboard')}>
+              <ComplianceRiskOversight onNavigate={handleNavigateCompliance} />
+            </ErrorBoundary>
           )}
-          {isCompliance && currentPage === 'compliance_reports' && <ComplianceReports />}
-          {isCompliance && (currentPage === 'audit' || currentPage === 'compliance_audit') && <AuditLogs />}
+          {isCompliance && currentPage === 'compliance_reports' && (
+            <ErrorBoundary moduleName="Compliance Governance Reports" onFallback={() => setCurrentPage('compliance_dashboard')}>
+              <ComplianceReports />
+            </ErrorBoundary>
+          )}
 
           {/* Investigator Views */}
           {!isAdmin && !isCompliance && currentPage === 'dashboard' && <DashboardOverview onNavigate={setCurrentPage} />}

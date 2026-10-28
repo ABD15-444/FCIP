@@ -6,3 +6,5 @@ dist/
 build/
 *.log
 backend/backups/*.sql
+backend/backups/*.sql
+

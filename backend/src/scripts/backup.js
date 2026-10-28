@@ -31,3 +31,4 @@ try {
   console.error('Failed to create database backup via pg_dump:', error.message);
   process.exit(1);
 }
+

@@ -182,3 +182,4 @@ psql -U postgres -d fcip_db -f "backend/backups/fcip_db_pre_demo_backup_latest.s
 - **Compliance Review Suite:** 7 / 7 Tests Passed (`npm run test:compliance`)
 - **Report Download & Auth Suite:** 7 / 7 Tests Passed (`npm run test:download`)
 - **Frontend Build:** Compiled with 0 errors (`npm run build:frontend`)
+
