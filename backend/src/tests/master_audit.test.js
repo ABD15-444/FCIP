@@ -554,9 +554,12 @@ async function runMasterAudit() {
 
     console.log('\n[Phase 8] Authenticated PDF / HTML Report Download');
 
+    const firstRepRes = await db.query('SELECT id FROM reports ORDER BY id ASC LIMIT 1');
+    const exportRepId = firstRepRes.rows.length > 0 ? firstRepRes.rows[0].id : 1;
+
     // TEST 8.1: Unauthenticated export blocked (401)
     const repNoAuth = await makeRequest(server, {
-      path: '/api/reports/1/export',
+      path: `/api/reports/${exportRepId}/export`,
       method: 'GET',
     });
     recordTest(
@@ -568,7 +571,7 @@ async function runMasterAudit() {
 
     // TEST 8.2: Authenticated export with valid token and proper headers
     const repAuth = await makeRequest(server, {
-      path: '/api/reports/1/export',
+      path: `/api/reports/${exportRepId}/export`,
       method: 'GET',
       headers: { Authorization: `Bearer ${compToken}` },
     });

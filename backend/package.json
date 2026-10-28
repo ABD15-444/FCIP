@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "demo:backup": "node src/scripts/backup.js",
+    "demo:reset": "node src/scripts/demoReset.js --confirm"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

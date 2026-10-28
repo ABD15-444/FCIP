@@ -3,6 +3,89 @@ const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken } = require('../middleware/auth');
 
+// GET /api/network/erd - return PostgreSQL database schema, foreign-key relationships and live record counts
+router.get('/erd', authenticateToken, async (req, res) => {
+  try {
+    const tableNames = [
+      'customers',
+      'accounts',
+      'transactions',
+      'detection_rules',
+      'alerts',
+      'risk_scores',
+      'cases',
+      'case_notes',
+      'case_history',
+      'reports',
+      'compliance_reviews',
+      'audit_logs',
+      'users'
+    ];
+
+    const tables = [];
+    for (const tbl of tableNames) {
+      const countRes = await db.query(`SELECT COUNT(*) as count FROM ${tbl}`);
+      const rowCount = parseInt(countRes.rows[0].count, 10);
+
+      const colRes = await db.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+        ORDER BY ordinal_position ASC
+      `, [tbl]);
+
+      const fkRes = await db.query(`
+        SELECT
+          kcu.column_name,
+          ccu.table_name AS foreign_table_name,
+          ccu.column_name AS foreign_column_name,
+          tc.constraint_type
+        FROM information_schema.table_constraints AS tc
+        JOIN information_schema.key_column_usage AS kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        LEFT JOIN information_schema.constraint_column_usage AS ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+        WHERE tc.table_schema = 'public' AND tc.table_name = $1
+      `, [tbl]);
+
+      tables.push({
+        name: tbl,
+        rowCount,
+        columns: colRes.rows,
+        keys: fkRes.rows,
+      });
+    }
+
+    const relationships = [
+      { from: 'customers', to: 'accounts', type: '1:N', label: 'customer_id' },
+      { from: 'accounts', to: 'transactions', type: '1:N', label: 'from_account_id / to_account_id' },
+      { from: 'transactions', to: 'alerts', type: '1:1', label: 'transaction_id' },
+      { from: 'detection_rules', to: 'alerts', type: '1:N', label: 'rule_id' },
+      { from: 'transactions', to: 'risk_scores', type: '1:1', label: 'entity_id' },
+      { from: 'alerts', to: 'cases', type: '1:N', label: 'alert_id' },
+      { from: 'cases', to: 'case_notes', type: '1:N', label: 'case_id' },
+      { from: 'cases', to: 'case_history', type: '1:N', label: 'case_id' },
+      { from: 'cases', to: 'compliance_reviews', type: '1:N', label: 'case_id' },
+      { from: 'cases', to: 'reports', type: '1:N', label: 'case_id' },
+      { from: 'users', to: 'cases', type: '1:N', label: 'assigned_to / created_by' },
+      { from: 'users', to: 'audit_logs', type: '1:N', label: 'user_id' },
+    ];
+
+    res.status(200).json({
+      success: true,
+      database: process.env.DB_NAME || 'fcip_db',
+      timestamp: new Date().toISOString(),
+      tables,
+      relationships,
+    });
+  } catch (error) {
+    console.error('ERD schema fetch error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve database schema ERD.' });
+  }
+});
+
 // GET /api/network/graph - return global network overview across recent transactions
 router.get('/graph', authenticateToken, async (req, res) => {
   try {

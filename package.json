@@ -1,0 +1,17 @@
+{
+  "name": "fcip-platform",
+  "version": "2.4.0",
+  "description": "Financial Crime Intelligence Platform (FCIP)",
+  "private": true,
+  "scripts": {
+    "start": "npm --prefix backend start",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "demo:backup": "npm --prefix backend run demo:backup",
+    "demo:reset": "npm --prefix backend run demo:reset",
+    "test:master": "node backend/src/tests/master_audit.test.js",
+    "test:compliance": "node backend/src/tests/test_compliance.js",
+    "test:download": "node backend/src/tests/test_report_download.js"
+  }
+}

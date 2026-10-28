@@ -152,11 +152,16 @@ export const alertService = {
 // Network Graph Services
 export const networkService = {
   getGraph: async (accountId) => {
-    const res = await api.get(`/network/graph/${accountId}`);
+    const endpoint = accountId ? `/network/graph/${accountId}` : '/network/graph';
+    const res = await api.get(endpoint);
     return res.data;
   },
   getMoneyFlow: async (accountId) => {
     const res = await api.get(`/network/money-flow/${accountId}`);
+    return res.data;
+  },
+  getERD: async () => {
+    const res = await api.get('/network/erd');
     return res.data;
   },
 };
