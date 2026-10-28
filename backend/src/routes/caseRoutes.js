@@ -193,7 +193,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     // Fetch linked alert details if alert_id exists
     if (caseData.alert_id) {
       const alertQuery = await db.query(
-        `SELECT a.*, dr.rule_name, dr.rule_code, dr.severity as rule_severity,
+        `SELECT a.*, dr.rule_name, dr.risk_level as rule_severity,
                 t.amount, t.currency, t.transaction_date,
                 rs.score as severity_score
          FROM alerts a
